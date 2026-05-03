@@ -1,0 +1,186 @@
+# LKA Pipeline — ค่าคงที่ทั้งหมด (รวม config เดียว)
+# แก้ค่าที่นี่แล้วรันใหม่; config.py โหลดจากไฟล์นี้
+
+# ── Camera ─────────────────────────────────────────────────────────────────
+camera:
+  CAM_FOV_DEG: 90.0   # 90° for balanced near/far lane coverage
+  CAM_W: 640   # คงที่ 640 เพราะ UNet train ด้วย resolution นี้
+  CAM_H: 480   # คงที่ 480 เพราะ UNet train ด้วย resolution นี้
+  CTE_TO_METERS: 3.5
+  UNET_INPUT_W: 640
+  UNET_INPUT_H: 480
+  # Optional: lower res for inference only (faster GPU); mask resized back to CAM_W x CAM_H
+  UNET_INPUT_W_INFER: 640   # ใช้ full resolution เพื่อหลีกเลี่ยง tensor mismatch
+  UNET_INPUT_H_INFER: 480   # ใช้ full resolution
+  TARGET_SPEED_KMH: 25.0
+
+# ── Lane Detection Method ──────────────────────────────────────────────────
+perception:
+  USE_CLASSICAL_DETECTOR: false  # true = Classical (color, no GPU), false = UNet (deep learning, GPU)
+
+# ── Waypoints ───────────────────────────────────────────────────────────────
+waypoints:
+  NUM_WP: 40
+  WP_STEP: 2.0
+  WP_LOOKAHEAD: 8.0
+
+# ── Fusion ──────────────────────────────────────────────────────────────────
+fusion:
+  WP_CTE_WEIGHT: 0.80
+  UNET_CENTER_WEIGHT: 0.20
+  LANE_CONF_THRESHOLD: 0.45
+  WP_DIRECTION_WEIGHT: 1.0
+
+# ── Lane / ROI ─────────────────────────────────────────────────────────────
+lane:
+  ROI_BOTTOM_RATIO: 0.55
+  ROI_TOP_PENALTY_RATIO: 0.35
+  ROAD_TOP_RATIO: 0.58
+  # ต่ำลง = ใช้พื้นที่ BEV ด้านบน (ระยะไกล) มากขึ้น → เลนยาวขึ้น (0.12 = 88% ของ BEV)
+  BEV_LANE_SEARCH_TOP_RATIO: 0.1
+  BEV_HISTOGRAM_WEIGHT_FAR: 1.5
+  BEV_HISTOGRAM_WEIGHT_NEAR: 0.5
+  BEV_WARP_INTERPOLATION: "nearest"
+  # เส้นขวาให้รับขอบถนน: ใช้ rightmost peak แทน argmax (เลือกจุดขวาสุดที่สูงพอ)
+  BEV_RIGHTMOST_PEAK: true
+  BEV_RIGHT_PEAK_MIN_RATIO: 0.25
+  # P2 BEV: ต่อรอยปะใน BEV — kernel (width, height) แนวตั้ง = ต่อตามแนวถนน; [] = ไม่ใช้
+  BEV_ALONG_ROAD_DILATE_KERNEL: [3, 5]
+  LANE_CONF_ROI_TOP_RATIO: 0.30
+  LANE_CONF_CONTINUITY_ALPHA: 0.4
+  LANE_CONTINUITY_MIN_AREA_PX: 50
+  # Raw UNet morphology (tuple ใน YAML เป็น list)
+  RAW_MASK_DILATE_KERNEL: [3, 3]
+  RAW_MASK_CLOSE_KERNEL: [5, 5]
+  RAW_MASK_CLOSE_KERNEL2: [7, 7]
+  MASK_DILATE_VERTICAL: [3, 14]
+  MASK_CLOSE_KERNEL_LARGE: [15, 8]
+  DEBUG_MASK_DIR: ""
+  DEBUG_MASK_SAVE_EVERY_N: 30
+  ROAD_MARGIN_PX: 8
+  MIN_LANE_WIDTH_PX: 12
+  MAX_LANE_WIDTH_PX: 280
+  CENTER_LANE_WIDTH_RATIO: 0.65
+  LANE_MEMORY_MARGIN_PX: 55
+  LANE_EXTEND_ROWS_UP: 72
+  LANE_FILL_STEP: 1
+  DASHED_LANE_MIN_PIXELS: 5
+  # Lane width validation (vehicle frame, m) — ใช้ใน lane_validator
+  MIN_LANE_WIDTH_M: 2.0
+  MAX_LANE_WIDTH_M: 5.5
+  # Lane overlay: false = แนบขอบเลนที่จับได้ (left/right coeffs), true = strip ความกว้างคงที่
+  LANE_OVERLAY_ROAD_FORM: false
+  LANE_OVERLAY_STRIP_HALF_WIDTH_M: 0.9
+  # ระยะ (m) ที่ช่วงใกล้ตัวให้วาดเส้นตรง; ลดให้กรอบแนบขอบเลน (0 = ใช้ left/right ตลอด)
+  LANE_OVERLAY_STRAIGHT_NEAR_M: 2.0
+  # กรอบความกว้างเลนแบบ fix: หาความกว้างที่ ego แล้ว clamp ไม่ให้บีบ/เละ
+  LANE_FRAME_WIDTH_MIN_M: 2.0
+  LANE_FRAME_WIDTH_MAX_M: 5.5
+  LANE_FRAME_WIDTH_NOMINAL_M: 3.5
+  LANE_FRAME_WIDTH_EMA_ALPHA: 0.6
+  # false = overlay แนบขอบเลนที่จับได้ (กรอบถนน), true = strip ความกว้างคงที่จาก center
+  LANE_OVERLAY_USE_FRAME_WIDTH: false
+  # สี่เหลี่ยมคางหมู: วัดระยะระหว่างเลนซ้าย-ขวาที่ต้นและปลาย แล้ววาด overlay เป็น trapezoid (ความกว้างจากคำนวณ)
+  LANE_OVERLAY_TRAPEZOID: true
+
+# ── Reference path & MPC ───────────────────────────────────────────────────
+reference_mpc:
+  CTE_LANE_HALF_WIDTH_M: 0.55
+  MAX_CURVATURE_REF: 0.035
+  STEER_SMOOTH_ALPHA: 0.80  # เพิ่มจาก 0.70 → 0.80 เพื่อ smooth มากขึ้น
+  # Rate limit steering change per frame (CARLA units) to reduce oscillation when perception mode switches
+  STEER_MAX_DELTA_PER_FRAME: 0.03  # ลดจาก 0.05 → 0.03 เพื่อลดการเปลี่ยนแปลงรุนแรง
+  STEER_RATE_LIMIT_SPEED_KMH: 40.0
+  STEER_MAX_DELTA_HIGH_SPEED: 0.02  # ลดจาก 0.03 → 0.02
+  USE_TRAJECTORY_PIPELINE: true  # เปิดกลับมา - ใช้ UNet threshold 0.2
+  LANE_EMA_ALPHA: 0.38
+  STATE_EMA_ALPHA: 0.10  # ลดจาก 0.20 → 0.10 เพื่อ responsive มากขึ้น
+  REF_PATH_LOOKAHEAD_M: 35.0
+  REF_PATH_NUM_PTS: 70
+  REF_PATH_DISPLAY_LOOKAHEAD_M: 200.0
+  REF_PATH_DISPLAY_NUM_PTS: 200
+  # Planning view: รัศมีรอบตัวรถ (m) สำหรับวาด vector ถนนทั้งหมดรวมทุกเลน (Bird's Eye + 3D Vector)
+  PLANNING_VIEW_RADIUS_M: 500.0
+  # ตอนเลี้ยว: lookahead ไม่ต่ำกว่านี้เมื่อ |curv| > threshold (path ยาวพอในโค้ง)
+  TURN_LOOKAHEAD_MIN_M: 12.0
+  TURN_LOOKAHEAD_CURV_THRESHOLD: 0.02
+  # Curve anticipation braking - ชะลอก่อนเข้าโค้ง (lookahead 50m)
+  CURVE_ANTICIPATE_LOOKAHEAD_M: 50.0
+  CURVE_BRAKE_CURV_MILD: 0.008        # เริ่มชะลอที่โค้งเบา
+  CURVE_BRAKE_CURV_MEDIUM: 0.015      # โค้งปานกลาง
+  CURVE_BRAKE_CURV_SHARP: 0.03        # โค้งแรง
+  CURVE_BRAKE_CURV_EXTREME: 0.05      # โค้ง 90 องศา
+  CURVE_BRAKE_SPEED_MILD: 0.85        # 85% ความเร็วที่โค้งเบา
+  CURVE_BRAKE_SPEED_MEDIUM: 0.65      # 65% ที่โค้งปานกลาง
+  CURVE_BRAKE_SPEED_SHARP: 0.45       # 45% ที่โค้งแรง
+  CURVE_BRAKE_SPEED_EXTREME: 0.30     # 30% ที่โค้ง 90 องศา
+  # Perception path: min confidence to use; path lateral sanity (m)
+  PERCEPTION_PATH_MIN_CONF: 0.5
+  REF_PATH_LAT_SANITY_M: 5.0
+  PERCEPTION_PATH_SMOOTH_ALPHA: 0.6
+  # Smooth curvature จาก WP (ลดกระตุกตอนเลี้ยว)
+  CURVATURE_WP_EMA_ALPHA: 0.5
+  LANE_HALF_WIDTH_DRAW_M: 0.9
+  # Lane overlay (display only): margin ต่อข้าง, ความกว้างขั้นต่ำที่วาด (ลดให้กรอบแนบถนน)
+  LANE_OVERLAY_DISPLAY_MARGIN_M: 0.05
+  LANE_OVERLAY_MIN_DISPLAY_WIDTH_M: 1.2
+  LANE_OVERLAY_MAX_WIDTH_DRAW_M: 6.0
+  LOOKAHEAD_MIN_M: 8.0
+  LOOKAHEAD_TIME_S: 2.2
+  FUSION_CONF_HIGH: 0.75
+  FUSION_CONF_LOW: 0.30
+  # โค้ง: ลดน้ำหนัก UNet (adaptive) เมื่อ |curv| > threshold; ในโค้งแรง + geometry invalid → WP only
+  FUSION_CURVATURE_UNET_REDUCE_THRESHOLD: 0.025
+  FUSION_CURVATURE_UNET_REDUCE_SCALE: 0.02
+
+# ── MPC (tune สำหรับความนิ่ง: w_steer_rate/w_steer_jerk สูง = ลดเหวี่ยง) ──
+mpc:
+  MPC_N: 10
+  MPC_DT: 0.1
+  MPC_L: 2.875
+  MPC_MAX_STEER: 0.7
+  MPC_MAX_STEER_RATE: 0.15
+  MPC_MAX_ACCEL: 3.0
+  MPC_MIN_ACCEL: -5.0
+  MPC_W_CTE: 10.0    # ลดจาก 20 → 10 เพื่อลด feedback gain และ oscillation
+  MPC_W_HEADING: 30.0  # ลดจาก 50 → 30 เพื่อลด aggressive correction
+  MPC_W_VEL: 5.0
+  MPC_W_STEER: 200.0   # เพิ่มจาก 150 → 200 เพื่อลดการใช้ steering มาก
+  MPC_W_ACCEL: 10.0
+  MPC_W_STEER_RATE: 600.0  # เพิ่มจาก 400 → 600 เพื่อลด oscillation มากขึ้น
+  MPC_W_ACCEL_RATE: 10.0
+  MPC_W_STEER_JERK: 200.0  # เพิ่มจาก 150 → 200 เพื่อลด jerk มากขึ้น
+  MPC_USE_ADAPTIVE_WEIGHTS: true
+
+# ── BEV / View ──────────────────────────────────────────────────────────────
+view:
+  REF_PATH_DISPLAY_EMA_ALPHA: 0.82
+  BEV_PX_PER_M: 35
+  BEV_W: 450
+  BEV_H: 320
+  VIEW3D_W: 350
+  VIEW3D_H: 200
+  BEV_WIN_W: 350
+  BEV_WIN_H: 200
+  PANEL_W: 450
+  PANEL_H: 320
+
+# ── Perception thread ──────────────────────────────────────────────────────
+runtime:
+  USE_PERCEPTION_THREAD: true
+  CONTROL_HZ: 20
+  STALE_PERCEPTION_S: 0.2
+  # Run full perception every N frames (1 = every frame; 2 = half load)
+  PERCEPTION_SKIP_FRAME: 1
+  # Lighter P6 visualization (smaller buffers) when true
+  PERCEPTION_LIGHTWEIGHT_VIS: true
+  # Main loop sleep after work (s); lower = higher FPS (0.01 or 0)
+  MAIN_LOOP_SLEEP_S: 0.005
+  # Draw dashboard every N frames (1 = every frame; 2 = half draw load)
+  DASHBOARD_DRAW_EVERY_N: 3
+  # Refresh BEV/all-lanes waypoint cache every N frames (reduces get_waypoints_all_lanes cost)
+  DISPLAY_PATH_CACHE_INTERVAL: 5
+
+# ── Safety ──────────────────────────────────────────────────────────────────
+safety:
+  SAFETY_MAX_STEER_RAD: 0.40  # ลดจาก 0.45 (23° แทน 25.8°)

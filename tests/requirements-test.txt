@@ -1,0 +1,2 @@
+# Install to run unit tests: pip install -r tests/requirements-test.txt
+pytest>=7.0.0

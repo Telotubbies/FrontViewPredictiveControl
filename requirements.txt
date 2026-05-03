@@ -1,0 +1,5 @@
+# Config โหลดจาก config.yaml
+pyyaml>=6.0
+
+# GPU acceleration for computer vision
+kornia>=0.6.0

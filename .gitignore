@@ -1,0 +1,64 @@
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+*.egg-info/
+dist/
+build/
+eggs/
+*.egg
+
+# Virtual environments
+venv/
+.venv/
+env/
+
+# IDE
+.idea/
+.vscode/
+*.swp
+*.swo
+
+# Logs and temp
+*.log
+logs/
+checkpoints/
+debug_output/
+debug_output_*/
+
+# Test outputs and debug artifacts
+tests/output/
+test_dash_results/
+screenshots/
+
+# Training outputs (large files)
+dsunet_training/outputs/
+dsunet_training/*.log
+
+# Model weights (track separately via LFS or download)
+model/*.pth
+model/*.pt
+
+# CARLA specific
+.carla_py/
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Jupyter
+.ipynb_checkpoints/
+
+# Test outputs
+/tmp/
+*.png
+!docs/*.png
+!docs/assets/*.png
+!docs/assets/*.gif
+model/lane_unet_final.pth
+
+dsunet_training/outputs/
+data/lane_train_diverse_*/
+scripts/archive/*.pdf
