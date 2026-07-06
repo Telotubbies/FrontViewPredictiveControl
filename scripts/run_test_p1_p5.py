@@ -113,7 +113,7 @@ def run_carla(
                 import os
                 if "DISPLAY" not in os.environ:
                     os.environ.setdefault("DISPLAY", ":0")
-                from run_unet_mpc import Dashboard
+                from gui.dashboard import Dashboard
                 dash = Dashboard()
                 logger.info("Dashboard opened (Pygame) — ปิดหน้าต่างหรือกด ESC เพื่อจบเทสก่อนครบ frames")
             except Exception as e:

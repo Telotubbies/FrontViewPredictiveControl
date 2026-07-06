@@ -17,7 +17,8 @@ import numpy as np
 from utils.type_hints import (
     ControlCommand, PerceptionResult, SafetyStatus, VehicleState
 )
-from config_clean import get_config
+import config as _config_module
+from config import *  # noqa: F401,F403 — module-level constants from config.py
 
 logger = logging.getLogger(__name__)
 
@@ -34,7 +35,7 @@ class ControlManager:
         self.enable_stuck_recovery = enable_stuck_recovery
         
         # Configuration
-        self.config = get_config()
+        self.config = _config_module
         
         # Control components
         self.mpc_controller: Optional[Any] = None
@@ -155,22 +156,23 @@ class ControlManager:
         try:
             # Check for stuck recovery
             if self.enable_stuck_recovery and self.stuck_recovery:
-                if self.stuck_recovery.should_recover(
-                    vehicle_state['speed_ms'],
-                    vehicle_state['transform'],
-                    self.last_control
-                ):
-                    recovery_control = self.stuck_recovery.get_recovery_control()
-                    control.steering = recovery_control.steering
-                    control.throttle = recovery_control.throttle
-                    control.brake = recovery_control.brake
+                speed_ms = vehicle_state['speed_ms']
+                throttle = self.last_control.throttle if self.last_control else 0.0
+                recovery = self.stuck_recovery.update(speed_ms, throttle)
+                if recovery is not None:
+                    steer_r, throttle_r, brake_r, reverse_r = recovery
+                    control.steering = steer_r
+                    control.throttle = throttle_r
+                    control.brake = brake_r
+                    control.reverse = reverse_r
                     self.safety_status = SafetyStatus(
                         active=True,
                         reason="Stuck recovery",
                         recovery_active=True,
                         timestamp=time.time()
                     )
-                    logger.info("Applying stuck recovery")
+                    logger.info("Applying stuck recovery (steer=%.2f thr=%.2f brake=%.2f reverse=%s)",
+                                steer_r, throttle_r, brake_r, reverse_r)
                     return control
             
             # Check perception validity

@@ -1,2 +1,15 @@
 # Install to run unit tests: pip install -r tests/requirements-test.txt
+# Core test deps
 pytest>=7.0.0
+pytest-cov>=4.0.0
+
+# Runtime deps needed by tests (install via pyproject.toml in production)
+pyyaml>=6.0
+numpy>=1.24
+scipy>=1.10
+opencv-python-headless>=4.8
+torch>=2.0
+casadi>=3.6
+
+# Linting (optional, used by CI)
+ruff>=0.1

@@ -166,7 +166,7 @@ def main():
         # Find latest run
         logs = Path("logs")
         if not logs.exists():
-            print("No logs/ dir. Run with: python run_unet_mpc.py --record --town Town04", file=sys.stderr)
+            print("No logs/ dir. Run with: python main.py --town Town04 (recording not yet supported in main.py)", file=sys.stderr)
             sys.exit(2)
         runs = sorted(logs.glob("run_*"), key=lambda p: p.stat().st_mtime, reverse=True)
         if not runs:

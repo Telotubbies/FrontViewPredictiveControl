@@ -38,10 +38,10 @@ shift || true
 
 case "$MODE" in
   classical)
-    exec "$PYTHON" "$SCRIPT_DIR/run_classical_mpc.py" "$@"
+    exec "$PYTHON" "$ROOT/main.py" --classical "$@"
     ;;
   unet)
-    exec "$PYTHON" "$ROOT/run_unet_mpc.py" "$@"
+    exec "$PYTHON" "$ROOT/main.py" "$@"
     ;;
   *)
     echo "Usage: $0 [classical|unet] [--town Town04] [--speed 25] ..."

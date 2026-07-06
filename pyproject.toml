@@ -1,0 +1,98 @@
+[build-system]
+requires = ["setuptools>=68.0", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "frontview-predictive-control"
+version = "0.2.0"
+description = "CARLA MPC lane-keeping with DSUNet perception and Pure Pursuit fallback"
+readme = "README.md"
+license = { text = "MIT" }
+requires-python = ">=3.10"
+authors = [{ name = "Telotubbies" }]
+keywords = ["carla", "mpc", "lane-keeping", "autonomous-driving", "dsunet", "casadi"]
+classifiers = [
+    "Development Status :: 4 - Beta",
+    "Intended Audience :: Science/Research",
+    "Topic :: Scientific/Engineering :: Artificial Intelligence",
+    "Programming Language :: Python :: 3.11",
+]
+
+dependencies = [
+    "pyyaml>=6.0",
+    "numpy>=1.24",
+    "scipy>=1.10",
+    "opencv-python-headless>=4.8",
+    "torch>=2.0",
+    "casadi>=3.6",
+]
+
+[project.optional-dependencies]
+dev = [
+    "pytest>=7.0",
+    "pytest-cov>=4.0",
+    "ruff>=0.1",
+]
+gpu = [
+    "kornia>=0.6.0",
+    "opencv-python>=4.8",
+]
+
+[project.urls]
+Repository = "https://github.com/Telotubbies/FrontViewPredictiveControl"
+
+[tool.setuptools]
+# Flat layout — modules at repo root (will migrate to src/ in next phase)
+py-modules = ["config", "main", "pipeline", "carla_io", "state"]
+
+[tool.setuptools.packages.find]
+where = ["."]
+include = [
+    "control*",
+    "perception*",
+    "safety*",
+    "alg*",
+    "core*",
+    "managers*",
+    "gui*",
+    "temporal*",
+    "bridge*",
+    "utils*",
+    "dsunet_training*",
+]
+exclude = ["tests*", "scripts*", "docs*", "agent*", "archive*"]
+
+[tool.pytest.ini_options]
+minversion = "7.0"
+testpaths = ["tests"]
+python_files = ["test_*.py"]
+python_classes = ["Test*"]
+python_functions = ["test_*"]
+addopts = [
+    "-v",
+    "--tb=short",
+    "--strict-markers",
+]
+markers = [
+    "integration: requires CARLA server (deselect with '-m \"not integration\"')",
+    "slow: marks tests as slow",
+]
+filterwarnings = [
+    "ignore::DeprecationWarning",
+    "ignore::PendingDeprecationWarning",
+]
+
+[tool.ruff]
+line-length = 100
+target-version = "py311"
+
+[tool.ruff.lint]
+select = ["E", "F", "W", "I", "UP"]
+ignore = [
+    "E501",  # line too long (handled by formatter)
+    "E402",  # module level import not at top (CARLA path setup needs to run first)
+]
+
+[tool.ruff.lint.per-file-ignores]
+"tests/*" = ["F401", "F811"]
+"scripts/*" = ["F401"]

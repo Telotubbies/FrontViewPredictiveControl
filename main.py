@@ -202,12 +202,18 @@ class CARLAMPCSystem:
                     self.carla.apply_control(carla_control)
                     
                     # Check for stuck recovery
-                    if self.stuck_recovery.should_recover(
-                        current_speed_ms, vehicle_transform, control_state
-                    ):
-                        recovery_control = self.stuck_recovery.get_recovery_control()
-                        self.carla.apply_control(recovery_control)
-                        logger.info("Applying stuck recovery")
+                    recovery = self.stuck_recovery.update(
+                        current_speed_ms, control_state.throttle
+                    )
+                    if recovery is not None:
+                        r_steer, r_throttle, r_brake, r_reverse = recovery
+                        carla_control = self.carla.get_vehicle_control()
+                        carla_control.steering = r_steer
+                        carla_control.throttle = r_throttle
+                        carla_control.brake = r_brake
+                        carla_control.reverse = r_reverse
+                        self.carla.apply_control(carla_control)
+                        logger.info("Applying stuck recovery (phase=%s)", self.stuck_recovery._phase)
                     
                     # Update dashboard
                     if self.dashboard and self.frame_count % 1 == 0:
@@ -323,6 +329,10 @@ def main():
     parser.add_argument("--log-level", type=str, default="INFO",
                        choices=["DEBUG", "INFO", "WARNING", "ERROR"],
                        help="Logging level")
+    parser.add_argument("--record-dir", type=str, default=None,
+                       help="Directory to record run data (not yet fully implemented)")
+    parser.add_argument("--duration", type=float, default=None,
+                       help="Maximum run duration in seconds (not yet fully implemented)")
     
     args = parser.parse_args()
     

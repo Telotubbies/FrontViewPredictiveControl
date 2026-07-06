@@ -25,12 +25,14 @@ from utils.type_hints import (
     CameraFrame, DetectionMode, ControlMode
 )
 
-from config_clean import get_config
+from config import (
+    TARGET_SPEED_KMH,
+    USE_PERCEPTION_THREAD,
+    PERCEPTION_SKIP_FRAME,
+    STALE_PERCEPTION_S,
+)
 
 logger = logging.getLogger(__name__)
-
-# Get configuration instance
-config = get_config()
 
 
 class PerceptionThread(threading.Thread):

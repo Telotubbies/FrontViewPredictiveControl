@@ -62,3 +62,37 @@ model/lane_unet_final.pth
 dsunet_training/outputs/
 data/lane_train_diverse_*/
 scripts/archive/*.pdf
+
+# CI / test artifacts
+.pytest_cache/
+.coverage
+htmlcov/
+coverage.xml
+test-results.xml
+junit.xml
+
+# Model weights (all formats)
+*.onnx
+*.h5
+*.safetensors
+*.ckpt
+*.pkl
+
+# Env files
+.env
+.env.*
+
+# Archives / binary data
+*.zip
+*.tar
+*.tar.gz
+*.npz
+
+# Experiment tracking
+wandb/
+mlruns/
+
+# Media (rosbag, video)
+*.bag
+*.mp4
+*.avi

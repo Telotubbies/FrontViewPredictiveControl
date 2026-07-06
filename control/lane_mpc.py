@@ -28,6 +28,8 @@ import numpy as np
 import casadi as ca
 from dataclasses import dataclass
 
+from control.pure_pursuit import PurePursuitController
+
 logger = logging.getLogger(__name__)
 
 # Speed (m/s) above which we emphasize heading/steer_rate over CTE
@@ -135,6 +137,9 @@ class LaneMPC:
         self._solver = None
         self._prev_u = np.zeros(2)
         self._prev_x0 = None  # warm start: last solution as initial guess
+        self._pp = PurePursuitController(
+            wheelbase=self.cfg.L, max_steer=self.cfg.max_steer
+        )
         self._build_solver()
 
     def set_horizon(self, N: int) -> None:
@@ -310,7 +315,7 @@ class LaneMPC:
             (steer, accel, solver_status): first control action and status for test loop
             steer in [-max_steer, max_steer] radians
             accel in [min_accel, max_accel] m/s^2
-            solver_status: "Solve_Succeeded" or "Fallback"
+            solver_status: "Solve_Succeeded" or "Fallback_PP"
         """
         c = self.cfg
         N = c.N
@@ -351,21 +356,22 @@ class LaneMPC:
 
             self._prev_u = np.array([steer, accel])
             self._prev_x0 = opt.copy()
+            self._pp.reset()
             return steer, accel, "Solve_Succeeded"
 
         except Exception as e:
             logger.warning(
-                "MPC solver failed, using P-control fallback: cte=%.3f heading=%.3f v_ref=%.2f v0=%.2f — %s",
+                "MPC solver failed, using Pure Pursuit fallback: cte=%.3f heading=%.3f v_ref=%.2f v0=%.2f — %s",
                 cte, heading_err, v_ref, v0, e,
                 exc_info=True,
             )
-            steer = -0.5 * cte - 0.3 * heading_err
+            steer = self._pp.compute_steering(cte, heading_err, v0, curvature)
             steer = float(np.clip(steer, -c.max_steer, c.max_steer))
             accel = 0.5 * (v_ref - v0)
             accel = float(np.clip(accel, c.min_accel, c.max_accel))
             self._prev_u = np.array([steer, accel])
             self._prev_x0 = None
-            return steer, accel, "Fallback"
+            return steer, accel, "Fallback_PP"
 
     def steer_to_carla(self, steer_rad: float):
         """Convert MPC steering (radians) to CARLA [-1, 1]."""
