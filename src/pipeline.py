@@ -3,6 +3,7 @@ LKA Pipeline — หลักเหตุผล: Perception → Fusion → Refer
 Input: RGB, speed, waypoint state. Output: control + FrameState สำหรับ view
 """
 import logging
+import time
 from typing import Optional, Tuple, List
 
 import numpy as np
@@ -196,11 +197,13 @@ class LKAPipeline:
         else:
             vt = self._target_speed_ms
 
-        steer_rad, accel, _ = self._mpc.solve(
+        mpc_t0 = time.time()
+        steer_rad, accel, solver_status = self._mpc.solve(
             x0=0, y0=cte_m, psi0=head_s, v0=speed_ms,
             v_ref=vt, cte=cte_m, heading_err=head_s, curvature=curv_s,
             confidence=float(np.clip(lane_conf, 0.0, 1.0)),
         )
+        mpc_solve_time_ms = (time.time() - mpc_t0) * 1000.0
         s_raw = self._mpc.steer_to_carla(steer_rad)
         steer = STEER_SMOOTH_ALPHA * prev_steer + (1 - STEER_SMOOTH_ALPHA) * s_raw
         throttle, brake = self._mpc.accel_to_carla(accel)
@@ -243,6 +246,8 @@ class LKAPipeline:
             right_px_bev=right_px_img,
             left_curvature_m=left_curvature_m,
             right_curvature_m=right_curvature_m,
+            solver_status=solver_status,
         )
+        frame_state.mpc_solve_time_ms = mpc_solve_time_ms
         return steer, throttle, brake, frame_state
 

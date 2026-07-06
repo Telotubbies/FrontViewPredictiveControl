@@ -106,6 +106,54 @@
 
 ---
 
+## Sprint 7: Measurement & Evaluation System (2025-07-12)
+
+| # | Agent | Task | Files | Description | Result |
+|---|-------|------|-------|-------------|--------|
+| 1 | orchestrator | Plan metrics system | — | Audit existing telemetry (InfluxDB exporter, get_metrics, MPCResult) and design comprehensive MetricsCollector | plan approved |
+| 2 | dev-control | Create MetricsCollector | `src/telemetry/metrics_collector.py` | New module: FrameMetrics dataclass + MetricsCollector class — records vehicle, lane, MPC, safety, ADAS, performance metrics per frame; saves CSV + JSON summary | module created |
+| 3 | dev-control | Add MPC solve_time to pipeline | `src/pipeline.py`, `src/state.py` | Capture `mpc_solve_time_ms` and `solver_status` in pipeline.step(); add field to FrameState | pipeline records MPC timing |
+| 4 | dev-control | Integrate MetricsCollector into main loop | `src/main.py` | Import, init, record every frame, save on cleanup; add `--metrics-dir` CLI arg | main loop records all metrics |
+| 5 | dev-ai | Perception metrics recording | — | MetricsCollector already captures cte, heading, curvature, confidence, geometry_valid, phase_p1-p5 rates | perception metrics covered |
+| 6 | dev-ai | DSUNet evaluation script | `scripts/run_evaluation.py` | Standalone script wrapping existing evaluate.py — outputs IoU/Dice/Precision/Recall/F1 + baseline comparison | script created |
+| 7 | dev-control | Run metrics analysis script | `scripts/run_metrics.py` | Standalone CSV analyzer — prints summary + saves JSON; works without CARLA | script created |
+| 8 | tech-lead | Review metrics system | — | Reviewed diff: clean module, no cross-layer violations, backward compatible, no blocking calls in main loop | approved |
+| 9 | qa-reviewer | Write MetricsCollector tests | `tests/unit/test_metrics_collector.py` | 14 tests: FrameMetrics defaults, record/save/summary/reset, fallback counting, phase rates, safety metrics, run_metrics analysis | 14/14 passed |
+| 10 | qa-reviewer | Full test suite + lint | — | 644 passed, 0 failed, ruff clean | ready for delivery |
+| 11 | git-ops | Commit + push + WORKLOG | — | Commit all Sprint 7 changes | — |
+
+### Metrics Captured (per frame, saved to CSV + JSON)
+
+**Perception:**
+- CTE (mean, std, max_abs, RMSE)
+- Heading error (mean, std, max_abs)
+- Lane confidence (mean, std, min)
+- Geometry valid rate
+- Phase P1–P5 success rates
+
+**Control / MPC:**
+- Solve time (mean, p95, max)
+- Fallback count + rate
+- Steering (mean, std, max_abs)
+- Speed (mean, std, max)
+
+**Performance:**
+- FPS (mean, min, std)
+- Loop time (mean, p95, max)
+
+**Safety:**
+- Safety active count + rate
+- Stuck recovery count
+- AEB trigger count
+- ACC active count
+- LDW warning count
+
+**DSUNet Model Evaluation (offline):**
+- IoU, Dice, Precision, Recall, F1
+- Baseline comparison (IoU ≥ 0.861, Dice ≥ 0.916)
+
+---
+
 ## Notes
 
 - ทุกงานที่ทำจะถูกบันทึกในไฟล์นี้ พร้อม commit hash

@@ -38,6 +38,7 @@ from adas.adas_manager import ADASManager
 from bridge.obstacles import get_traffic_obstacles
 from carla_input_output import get_waypoints, waypoints_to_cte_heading
 from telemetry.influxdb_exporter import TelemetryExporter
+from telemetry.metrics_collector import MetricsCollector
 from config import (
     TARGET_SPEED_KMH, USE_TRAJECTORY_PIPELINE,
     CONTROL_HZ, MAIN_LOOP_SLEEP_S
@@ -53,11 +54,13 @@ class CARLAMPCSystem:
                  model_path: str,
                  target_speed_kmh: float = TARGET_SPEED_KMH,
                  use_classical: bool = False,
-                 no_gui: bool = False):
+                 no_gui: bool = False,
+                 metrics_dir: str = "metrics_output"):
         self.model_path = model_path
         self.target_speed_kmh = target_speed_kmh
         self.use_classical = use_classical
         self.no_gui = no_gui
+        self.metrics_dir = metrics_dir
 
         # System components
         self.carla: Optional[CarlaInterface] = None
@@ -68,6 +71,7 @@ class CARLAMPCSystem:
         self.aeb_acc: Optional[AEBACC] = None
         self.adas: Optional[ADASManager] = None
         self.telemetry: Optional[TelemetryExporter] = None
+        self.metrics_collector: Optional[MetricsCollector] = None
 
         # Control state (persisted between frames for smoothing)
         self._prev_steer = 0.0
@@ -125,6 +129,7 @@ class CARLAMPCSystem:
             self.aeb_acc = AEBACC()
             self.adas = ADASManager(aeb_acc=self.aeb_acc)
             self.telemetry = TelemetryExporter(enabled=True)
+            self.metrics_collector = MetricsCollector(output_dir=self.metrics_dir)
 
             logger.info("System initialization completed — Full ADAS suite active")
             return True
@@ -280,6 +285,27 @@ class CARLAMPCSystem:
                     except Exception as e:
                         logger.debug(f"Telemetry export skipped: {e}")
 
+                # ── Metrics collection ────────────────────────────────
+                if self.metrics_collector:
+                    loop_time_ms = (time.time() - loop_start_time) * 1000.0
+                    mpc_solve_ms = float(getattr(frame_state, 'mpc_solve_time_ms', 0.0)) if frame_state else 0.0
+                    mpc_status = str(getattr(frame_state, 'solver_status', 'unknown')) if frame_state else 'unknown'
+                    safety_active = bool(getattr(frame_state, 'safety_active', False)) if frame_state else False
+                    self.metrics_collector.record_from_frame_state(
+                        frame_idx=self.frame_count,
+                        speed_ms=current_speed_ms,
+                        steer=steer,
+                        throttle=throttle,
+                        brake=brake,
+                        frame_state=frame_state,
+                        mpc_solve_time_ms=mpc_solve_ms,
+                        mpc_solver_status=mpc_status,
+                        loop_time_ms=loop_time_ms,
+                        safety_active=safety_active,
+                        stuck_recovery_active=False,
+                        adas_out=adas_out if 'adas_out' in dir() else None,
+                    )
+
                 # Apply control to vehicle
                 carla_control = self.carla.get_vehicle_control()
                 carla_control.steering = steer
@@ -302,6 +328,8 @@ class CARLAMPCSystem:
                     carla_control.reverse = r_reverse
                     self.carla.apply_control(carla_control)
                     logger.info("Applying stuck recovery (phase=%s)", self.stuck_recovery._phase)
+                    if self.metrics_collector and self.metrics_collector.frames:
+                        self.metrics_collector.frames[-1].stuck_recovery_active = True
 
                 # Update dashboard
                 if self.dashboard:
@@ -397,6 +425,15 @@ class CARLAMPCSystem:
         try:
             logger.info("Cleaning up system resources...")
 
+            # Save metrics
+            if self.metrics_collector and self.metrics_collector.frames:
+                paths = self.metrics_collector.save(prefix="run")
+                logger.info("Metrics saved: %s", paths)
+                summary = self.metrics_collector.get_summary()
+                logger.info("Run summary: %d frames, %.1fs, fallback=%d (%.1f%%)",
+                            summary['total_frames'], summary['duration_s'],
+                            summary['fallback_count'], summary['fallback_rate'] * 100)
+
             # Close telemetry exporter
             if self.telemetry:
                 self.telemetry.close()
@@ -439,6 +476,8 @@ def main():
                        help="Directory to record run data (not yet fully implemented)")
     parser.add_argument("--duration", type=float, default=None,
                        help="Maximum run duration in seconds (not yet fully implemented)")
+    parser.add_argument("--metrics-dir", type=str, default="metrics_output",
+                       help="Directory to save metrics CSV/JSON output")
 
     args = parser.parse_args()
 
@@ -460,7 +499,8 @@ def main():
         model_path=args.model,
         target_speed_kmh=args.speed,
         use_classical=args.classical,
-        no_gui=args.no_gui
+        no_gui=args.no_gui,
+        metrics_dir=args.metrics_dir,
     )
 
     return system.run()

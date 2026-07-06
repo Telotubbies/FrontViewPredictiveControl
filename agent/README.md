@@ -1,0 +1,61 @@
+# Subagent Team — FrontViewPredictiveControl (CARLA MPC)
+
+ทีม subagent 6 ตัวสำหรับทำงานต่อบน repo:
+https://github.com/Telotubbies/FrontViewPredictiveControl
+
+Format เป็น Claude Code subagent (`.claude/agents/*.md`) — เอาไฟล์ทั้ง 6 ไฟล์
+ไปวางไว้ที่ `.claude/agents/` ในโปรเจกต์ (หรือ `~/.claude/agents/` ถ้าจะใช้ทุกโปรเจกต์)
+Claude Code จะ auto-detect และเรียกใช้งานตาม `description` ของแต่ละตัว
+
+## ทีมงาน
+
+| Agent | ไฟล์ | บทบาท |
+|---|---|---|
+| `orchestrator` | orchestrator.md | รับ task, แตกงาน, สั่งงาน agent อื่นตามลำดับ, gate ก่อน merge |
+| `dev-control` | dev-control.md | แก้/เขียนโค้ด control logic: MPC, Pure Pursuit, safety, alg/ |
+| `dev-ai` | dev-ai.md | แก้/เขียนโค้ด perception & AI: DSUNet, BEV, lane fitting, Kalman/LSTM |
+| `tech-lead` | tech-lead.md | รีวิวสถาปัตยกรรม, ความสะอาดโค้ด, consistency ทั้ง repo |
+| `qa-reviewer` | qa-reviewer.md | เขียน/รัน pytest, เช็ค safety edge case, sign-off ก่อน commit |
+| `git-ops` | git-ops.md | git add/commit/push, เปิด PR, ไม่ merge เอง |
+
+## ลำดับการทำงานที่แนะนำ
+
+```
+User request
+   │
+   ▼
+orchestrator  ── วิเคราะห์ว่ากระทบโมดูลไหน (control / perception / ทั้งคู่)
+   │
+   ├──► dev-control  (ถ้ากระทบ control/, alg/, safety/, managers/control_manager.py)
+   │
+   └──► dev-ai       (ถ้ากระทบ perception/, dsunet_training/, temporal/)
+                │
+                ▼
+          tech-lead   ── ตรวจ style / architecture / duplication → approve หรือ request changes
+                │
+                ▼
+          qa-reviewer ── pytest tests/ + safety edge case → PASS/FAIL report
+                │
+                ▼ (เฉพาะเมื่อ PASS)
+          git-ops     ── branch → commit (conventional commits) → push → เปิด PR
+```
+
+**Gate สำคัญ:** `git-ops` จะไม่ commit/push ถ้า `tech-lead` ยังไม่ approve หรือ
+`qa-reviewer` ยังไม่ PASS — ถ้า user สั่งให้ git-ops ทำงานตรงๆ โดยข้ามขั้นตอน
+ให้ git-ops เตือนก่อนว่าข้ามการตรวจสอบ
+
+## วิธีติดตั้ง (Claude Code)
+
+```bash
+mkdir -p .claude/agents
+cp orchestrator.md dev-control.md dev-ai.md tech-lead.md qa-reviewer.md git-ops.md .claude/agents/
+```
+
+จากนั้นเรียกใช้ตรงๆ ได้ เช่น:
+- "ใช้ orchestrator วางแผนแก้บั๊ก MPC เลี้ยวโค้งช้าเกินไป"
+- "ให้ dev-ai ปรับ threshold การ segment lane ใน lane_detector.py"
+- "ให้ qa-reviewer รัน test แล้วสรุปผล"
+
+ถ้าใช้ Claude ผ่านหน้าเว็บ/แอปธรรมดา (ไม่ใช่ Claude Code) ก็ยังใช้ system prompt
+พวกนี้ได้ — แค่ copy เนื้อหาในแต่ละไฟล์ (ส่วนหลัง `---` ที่สอง) ไปตั้งเป็น
+custom instructions/system prompt ของแต่ละ session แทน

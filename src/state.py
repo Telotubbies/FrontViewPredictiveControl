@@ -81,3 +81,4 @@ class FrameState:
     acc_active: bool = False
     acc_target_speed_ms: float = -1.0
     acc_distance_m: float = -1.0
+    mpc_solve_time_ms: float = 0.0
