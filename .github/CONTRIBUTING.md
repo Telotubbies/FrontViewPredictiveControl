@@ -12,7 +12,7 @@ pip install -e ".[dev]"
 
 ```bash
 # Unit tests (no CARLA required)
-pytest tests/test_lane_mpc.py tests/test_reference.py tests/test_safety_override.py tests/test_stuck_recovery.py tests/test_improved_lane_fitting.py -v
+pytest tests/unit/test_lane_mpc.py tests/unit/test_reference.py tests/unit/test_override.py tests/unit/test_stuck_recovery.py tests/unit/test_spline_lane_fitting.py -v
 
 # All tests (CARLA-dependent tests will error — run those locally with CARLA)
 pytest tests/ --continue-on-collection-errors

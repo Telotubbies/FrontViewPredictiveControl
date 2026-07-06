@@ -58,7 +58,7 @@ from config import (
 from state import FrameState
 from temporal.lane_lstm import LaneTemporalSmoother
 from control.lane_mpc import LaneMPC, MPCConfig, get_mpc_weights, compute_mpc_horizon
-from safety.safety_override import SafetyOverride
+from safety.override import SafetyOverride
 from perception.road_perception import RoadPerception, BEVRoadPerception
 
 from .reference import dynamic_lookahead_m, get_reference_path, resample_path, smooth_path_lat

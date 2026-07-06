@@ -25,7 +25,7 @@ from alg.fusion import apply_fusion
 from state import FrameState
 from temporal.lane_lstm import LaneTemporalSmoother
 from control.lane_mpc import LaneMPC, MPCConfig
-from safety.safety_override import SafetyOverride
+from safety.override import SafetyOverride
 from perception.road_perception import RoadPerception, BEVRoadPerception
 
 logger = logging.getLogger(__name__)

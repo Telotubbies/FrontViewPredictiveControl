@@ -10,7 +10,7 @@ ROOT = Path(__file__).resolve().parents[1]
 if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
 
-from perception.improved_lane_fitting import (
+from perception.spline_lane_fitting import (
     BSplineLaneFitter,
     GeometricLaneValidator,
     convert_bspline_to_polynomial,

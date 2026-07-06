@@ -28,7 +28,7 @@ import numpy as np
 
 # Import B-spline fitter for improved lane fitting
 try:
-    from .improved_lane_fitting import BSplineLaneFitter
+    from .spline_lane_fitting import BSplineLaneFitter
     BSPLINE_AVAILABLE = True
 except ImportError:
     BSPLINE_AVAILABLE = False

@@ -42,7 +42,21 @@
 | 24 | 2026-07-06 | อัปเดต `pyproject.toml` สำหรับ src/ layout | `pyproject.toml` | tech-lead | `package-dir = {"" = "src"}`, `packages.find.where = ["src"]`, เพิ่ม `[project.scripts] fpvc = "main:main"`, อัปเดต `testpaths` เป็น `tests/unit, tests/integration` | TBD |
 | 25 | 2026-07-06 | อัปเดต CI workflow สำหรับ src/ | `.github/workflows/ci.yml` | qa-reviewer | เปลี่ยน `PYTHONPATH: src:.` ทุก step, อัปเดต test paths เป็น `tests/unit/` | TBD |
 | 26 | 2026-07-06 | Verify imports + รัน test suite | — | qa-reviewer | smoke imports ผ่านทั้งหมด, `pytest tests/unit/` → **34 passed** | TBD |
-| 27 | 2026-07-06 | Commit + push trigger CI | — | git-ops | commit phase 2 + push เพื่อ trigger GitHub Actions | TBD |
+| 27 | 2026-07-06 | Commit + push trigger CI | — | git-ops | commit phase 2 + push เพื่อ trigger GitHub Actions | `a34b247` |
+
+---
+
+## Phase 3: File Naming Refactor
+
+| # | Date | Task | Files | Agent | Description | Commit |
+|---|------|------|-------|-------|-------------|--------|
+| 28 | 2026-07-06 | ลบ dead code (6 ไฟล์, 1572 บรรทัด) | `alg/optimized_reference.py` (180), `gui/apollo_dashboard.py` (642), `gui/dsunet_dashboard.py` (312), `perception/vectorized_sliding_window.py` (277), `perception/gpu_bev_transform.py` (171), `utils/cuda_optimizations.py` (342) | git-ops | ลบไฟล์ที่ไม่ถูก import จากที่ไหนเลย — audit ด้วย grep ทั้ง repo | TBD |
+| 29 | 2026-07-06 | Rename `improved_lane_fitting.py` → `spline_lane_fitting.py` | `src/perception/spline_lane_fitting.py`, `src/perception/lane_trajectory.py:31`, `tests/unit/test_spline_lane_fitting.py` | dev-ai | "improved" prefix เป็น subjective naming — เปลี่ยนเป็น "spline" ที่บอก implementation จริง (B-spline) | TBD |
+| 30 | 2026-07-06 | Rename `safety_override.py` → `override.py` | `src/safety/override.py`, `src/safety/__init__.py:7`, `src/main.py:33`, `src/pipeline.py:28`, `src/managers/control_manager.py:110`, `src/alg/lka_step.py:61`, `tests/unit/test_override.py` | dev-control | ลบ redundant "safety_" prefix — ไฟล์อยู่ใน `safety/` อยู่แล้ว | TBD |
+| 31 | 2026-07-06 | Rename `alg/step.py` → `alg/lka_step.py` | `src/alg/lka_step.py`, `src/alg/__init__.py:5` | dev-control | "step" กว้างเกินไป — เปลี่ยนเป็น "lka_step" ที่บอกว่าเป็น Lane Keeping Assist step | TBD |
+| 32 | 2026-07-06 | Rename test files ให้ตรงโมดูล | `tests/unit/test_improved_lane_fitting.py` → `test_spline_lane_fitting.py`, `tests/unit/test_safety_override.py` → `test_override.py` | qa-reviewer | ชื่อ test ตรงกับชื่อโมดูลที่ test หลัง rename | TBD |
+| 33 | 2026-07-06 | อัปเดต CI workflow + CONTRIBUTING | `.github/workflows/ci.yml`, `.github/CONTRIBUTING.md` | qa-reviewer | อัปเดต smoke import + test paths ให้ใช้ชื่อใหม่ | TBD |
+| 34 | 2026-07-06 | Verify imports + รัน test suite | — | qa-reviewer | smoke imports ผ่าน, `pytest tests/unit/` → **34 passed** | TBD |
 
 ---
 

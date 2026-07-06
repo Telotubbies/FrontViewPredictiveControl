@@ -56,15 +56,15 @@ jobs:
           python -c "from control.lane_mpc import LaneMPC, MPCConfig; print('control.lane_mpc OK')"
           python -c "from control.pure_pursuit import PurePursuitController; print('control.pure_pursuit OK')"
           python -c "from alg.reference import dynamic_lookahead_m; print('alg.reference OK')"
-          python -c "from safety.safety_override import SafetyOverride; print('safety.safety_override OK')"
+          python -c "from safety.override import SafetyOverride; print('safety.override OK')"
           python -c "from safety.stuck_recovery import StuckRecovery; print('safety.stuck_recovery OK')"
-          python -c "from perception.improved_lane_fitting import BSplineLaneFitter; print('perception.improved_lane_fitting OK')"
+          python -c "from perception.spline_lane_fitting import BSplineLaneFitter; print('perception.spline_lane_fitting OK')"
 
       - name: Run unit tests (no CARLA required)
         env:
           PYTHONPATH: src:.
         run: |
-          pytest tests/unit/test_lane_mpc.py tests/unit/test_reference.py tests/unit/test_safety_override.py tests/unit/test_stuck_recovery.py tests/unit/test_improved_lane_fitting.py -v --tb=short
+          pytest tests/unit/test_lane_mpc.py tests/unit/test_reference.py tests/unit/test_override.py tests/unit/test_stuck_recovery.py tests/unit/test_spline_lane_fitting.py -v --tb=short
 
       - name: Run config/pipeline tests (may have known failures)
         env:

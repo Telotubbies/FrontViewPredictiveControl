@@ -30,7 +30,7 @@ from gui.dashboard import Dashboard
 
 # Import system components
 from pipeline import LKAPipeline
-from safety.safety_override import SafetyOverride
+from safety.override import SafetyOverride
 from safety.stuck_recovery import StuckRecovery
 from config import (
     TARGET_SPEED_KMH, USE_TRAJECTORY_PIPELINE, 

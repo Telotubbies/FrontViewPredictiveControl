@@ -1,4 +1,4 @@
-"""Unit tests for safety.safety_override.SafetyOverride.apply_safety_override."""
+"""Unit tests for safety.override.SafetyOverride.apply_safety_override."""
 import sys
 from pathlib import Path
 
@@ -8,7 +8,7 @@ ROOT = Path(__file__).resolve().parents[1]
 if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
 
-from safety.safety_override import SafetyOverride
+from safety.override import SafetyOverride
 
 
 def test_safety_clamps_steering():

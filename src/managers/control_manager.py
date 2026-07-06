@@ -107,7 +107,7 @@ class ControlManager:
     def _initialize_safety_system(self):
         """Initialize safety system"""
         try:
-            from safety.safety_override import SafetyOverride
+            from safety.override import SafetyOverride
             
             # Create safety config
             safety_config = {
