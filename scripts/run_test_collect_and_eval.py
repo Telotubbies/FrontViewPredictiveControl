@@ -30,7 +30,7 @@ def main():
     args = ap.parse_args()
 
     project_root = Path(__file__).resolve().parent.parent
-    run_script = project_root / "main.py"
+    run_script = project_root / "run_unet_mpc.py"
     eval_script = project_root / "scripts" / "evaluate_run.py"
 
     if args.eval_only is not None:
@@ -91,7 +91,7 @@ def main():
         env=env,
     )
     if ret.returncode != 0 and ret.returncode != 130:  # 130 = Ctrl+C
-        print("main.py exited with code", ret.returncode, file=sys.stderr)
+        print("run_unet_mpc exited with code", ret.returncode, file=sys.stderr)
         sys.exit(ret.returncode)
 
     if args.no_eval:

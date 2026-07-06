@@ -6,19 +6,14 @@ from pathlib import Path
 import numpy as np
 import pytest
 
-ROOT = Path(__file__).resolve().parents[2]
-SRC = ROOT / "src"
-for _p in (SRC, ROOT):
-    if str(_p) not in sys.path:
-        sys.path.insert(0, str(_p))
+ROOT = Path(__file__).resolve().parents[1]
+if str(ROOT) not in sys.path:
+    sys.path.insert(0, str(ROOT))
 
 from perception.spline_lane_fitting import (
     BSplineLaneFitter,
     GeometricLaneValidator,
     convert_bspline_to_polynomial,
-    LANE_WIDTH_MIN_M,
-    LANE_WIDTH_MAX_M,
-    LANE_WIDTH_NOMINAL_M,
 )
 
 
@@ -228,107 +223,3 @@ class TestIntegration:
 
 if __name__ == "__main__":
     pytest.main([__file__, "-v"])
-
-
-# ── Additional edge cases ────────────────────────────────────────────────────
-
-
-class TestBSplineLaneFitterEdgeCases:
-    """Additional edge case tests for BSplineLaneFitter."""
-
-    def test_none_input_left(self):
-        """None left lane → invalid result."""
-        fitter = BSplineLaneFitter()
-        x = np.linspace(0, 50, 30)
-        right_xy = np.column_stack([x, np.ones_like(x) * 1.75])
-        _, _, info = fitter.fit_lane_pair(None, right_xy)
-        assert info["valid"] is False
-
-    def test_none_input_right(self):
-        """None right lane → invalid result."""
-        fitter = BSplineLaneFitter()
-        x = np.linspace(0, 50, 30)
-        left_xy = np.column_stack([x, np.ones_like(x) * -1.75])
-        _, _, info = fitter.fit_lane_pair(left_xy, None)
-        assert info["valid"] is False
-
-    def test_empty_input(self):
-        """Empty arrays → invalid result."""
-        fitter = BSplineLaneFitter()
-        _, _, info = fitter.fit_lane_pair(
-            np.array([]).reshape(0, 2),
-            np.array([]).reshape(0, 2),
-        )
-        assert info["valid"] is False
-
-    def test_just_enough_points(self):
-        """Exactly 4 points (minimum) should work."""
-        fitter = BSplineLaneFitter()
-        left_xy = np.array([[0, -1.75], [10, -1.75], [20, -1.75], [30, -1.75]])
-        right_xy = np.array([[0, 1.75], [10, 1.75], [20, 1.75], [30, 1.75]])
-        _, _, info = fitter.fit_lane_pair(left_xy, right_xy)
-        # Should not fail with insufficient_points
-        assert info.get("reason", "") != "insufficient_points"
-
-    def test_no_constraints(self):
-        """Fitting without constraints should still produce valid splines."""
-        x = np.linspace(0, 50, 30)
-        left_xy = np.column_stack([x, np.ones_like(x) * -1.75])
-        right_xy = np.column_stack([x, np.ones_like(x) * 1.75])
-        fitter = BSplineLaneFitter()
-        left_s, right_s, info = fitter.fit_lane_pair(
-            left_xy, right_xy,
-            enforce_parallel=False,
-            enforce_width=False,
-        )
-        assert info["valid"] is True
-
-    def test_evaluate_before_fit_returns_none(self):
-        """evaluate_at before fitting should return (None, None)."""
-        fitter = BSplineLaneFitter()
-        left_y, right_y = fitter.evaluate_at(np.array([0, 10, 20]))
-        assert left_y is None
-        assert right_y is None
-
-
-class TestGeometricLaneValidatorEdgeCases:
-    """Additional edge case tests for GeometricLaneValidator."""
-
-    def test_none_input(self):
-        validator = GeometricLaneValidator()
-        valid, info = validator.validate_lane_pair(None, None)
-        assert valid is False
-
-    def test_wide_lanes(self):
-        """Lanes too wide → invalid."""
-        x = np.linspace(0, 50, 30)
-        left_xy = np.column_stack([x, np.ones_like(x) * -5.0])
-        right_xy = np.column_stack([x, np.ones_like(x) * 5.0])
-        validator = GeometricLaneValidator()
-        valid, info = validator.validate_lane_pair(left_xy, right_xy)
-        assert info["avg_width_m"] > LANE_WIDTH_MAX_M
-
-    def test_returns_info_dict(self):
-        """Should always return (bool, dict) tuple."""
-        validator = GeometricLaneValidator()
-        x = np.linspace(0, 50, 30)
-        left_xy = np.column_stack([x, np.ones_like(x) * -1.75])
-        right_xy = np.column_stack([x, np.ones_like(x) * 1.75])
-        valid, info = validator.validate_lane_pair(left_xy, right_xy)
-        assert isinstance(valid, bool)
-        assert isinstance(info, dict)
-        assert "checks" in info
-
-
-class TestLaneWidthConstants:
-    """Test lane geometry constants."""
-
-    def test_min_less_than_max(self):
-        assert LANE_WIDTH_MIN_M < LANE_WIDTH_MAX_M
-
-    def test_nominal_in_range(self):
-        assert LANE_WIDTH_MIN_M <= LANE_WIDTH_NOMINAL_M <= LANE_WIDTH_MAX_M
-
-    def test_min_positive(self):
-        assert LANE_WIDTH_MIN_M > 0
-

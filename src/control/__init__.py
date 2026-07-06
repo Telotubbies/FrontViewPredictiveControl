@@ -316,3 +316,9 @@ def _test_mpc():
 
 if __name__ == "__main__":
     _test_mpc()
+    _test_mpc()
+if __name__ == "__main__":
+    _test_mpc()
+
+if __name__ == "__main__":
+    _test_mpc()

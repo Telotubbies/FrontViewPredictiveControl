@@ -1,19 +1,19 @@
 """
-Lane trajectory pipeline — การจับเส้นแบบ phase (refactor).
+Lane trajectory pipeline โ€” เธเธฒเธฃเธเธฑเธเน€เธชเนเธเนเธเธ phase (refactor).
 
-Architecture: P1 → P2 → P3 → P4 → P5 → P6
+Architecture: P1 โ’ P2 โ’ P3 โ’ P4 โ’ P5 โ’ P6
 
-  P1 Lane mask:      RGB → binary mask + confidence
-  P2 BEV + quality:  mask → BEV warp, fill gaps, mask_quality
-  P3 Boundaries:     BEV → left/right/center coeffs (sliding window or ego tracker)
-  P4 Smooth center:  center_raw + Kalman → center_coeffs, geometry_valid
-  P5 Trajectory:     center_coeffs → (x_ref, y_ref, cte, heading, curvature, v_ref)
+  P1 Lane mask:      RGB โ’ binary mask + confidence
+  P2 BEV + quality:  mask โ’ BEV warp, fill gaps, mask_quality
+  P3 Boundaries:     BEV โ’ left/right/center coeffs (sliding window or ego tracker)
+  P4 Smooth center:  center_raw + Kalman โ’ center_coeffs, geometry_valid
+  P5 Trajectory:     center_coeffs โ’ (x_ref, y_ref, cte, heading, curvature, v_ref)
   P6 Visualization:  BEV window vis + lane overlay
 
 Visualization:
-  - Warped Frame (BEV binary mask) — full resolution
-  - Warped Frame With Search Window — sliding window colored (yellow left / blue right / green search area)
-  - Original Frame With Lane Overlay — green filled lane on perspective view
+  - Warped Frame (BEV binary mask) โ€” full resolution
+  - Warped Frame With Search Window โ€” sliding window colored (yellow left / blue right / green search area)
+  - Original Frame With Lane Overlay โ€” green filled lane on perspective view
 """
 
 from __future__ import annotations
@@ -102,61 +102,61 @@ except ImportError as e:
     LANE_CONF_CONTINUITY_ALPHA = 0.4
     LANE_CONTINUITY_MIN_AREA_PX = 50
 
-# ── Pipeline constants ──────────────────────────────────────────────────────
-LOOKAHEAD_M         = 30.0   # ระยะมองเลนข้างหน้า (m) — 30m เหมาะกับความเร็ว 25 km/h
-HALF_WIDTH_M        = 8.0    # ความกว้าง BEV ด้านข้าง (m) — 16m total width
+# โ”€โ”€ Pipeline constants โ”€โ”€โ”€โ”€โ”€โ”€โ”€โ”€โ”€โ”€โ”€โ”€โ”€โ”€โ”€โ”€โ”€โ”€โ”€โ”€โ”€โ”€โ”€โ”€โ”€โ”€โ”€โ”€โ”€โ”€โ”€โ”€โ”€โ”€โ”€โ”€โ”€โ”€โ”€โ”€โ”€โ”€โ”€โ”€โ”€โ”€โ”€โ”€โ”€โ”€โ”€โ”€โ”€โ”€
+LOOKAHEAD_M         = 30.0   # เธฃเธฐเธขเธฐเธกเธญเธเน€เธฅเธเธเนเธฒเธเธซเธเนเธฒ (m) โ€” 30m เน€เธซเธกเธฒเธฐเธเธฑเธเธเธงเธฒเธกเน€เธฃเนเธง 25 km/h
+HALF_WIDTH_M        = 8.0    # เธเธงเธฒเธกเธเธงเนเธฒเธ BEV เธ”เนเธฒเธเธเนเธฒเธ (m) โ€” 16m total width
 DS_RESAMPLE_M       = 0.5
 POLY_ORDER          = 2
 POLY_DIM            = POLY_ORDER + 1          # [c2, c1, c0]
-KALMAN_Q            = 0.08    # เพิ่มจาก 0.01 → 0.08 (8x faster response, adaptive)
-KALMAN_R            = 0.005   # ลดจาก 0.02 → 0.005 (เชื่อ measurement มากขึ้น)
+KALMAN_Q            = 0.08    # เน€เธเธดเนเธกเธเธฒเธ 0.01 โ’ 0.08 (8x faster response, adaptive)
+KALMAN_R            = 0.005   # เธฅเธ”เธเธฒเธ 0.02 โ’ 0.005 (เน€เธเธทเนเธญ measurement เธกเธฒเธเธเธถเนเธ)
 MAX_CURVATURE       = 0.08
 CURVATURE_RATE_LIMIT = 0.02
 OUTLIER_RESIDUAL_THRESH = 2.0
-# Adjacent lanes in BEV (optional หลายเส้น): draw candidates with |lateral_at_ego_m| in [MIN, MAX]
+# Adjacent lanes in BEV (optional เธซเธฅเธฒเธขเน€เธชเนเธ): draw candidates with |lateral_at_ego_m| in [MIN, MAX]
 ADJACENT_LANE_MIN_M = 2.0
 ADJACENT_LANE_MAX_M = 7.0
-# Curvature temporal smoothing — ลด spike จาก mask noise, จับ lane นิ่งขึ้น
-CURVATURE_EMA_ALPHA = 0.50       # สูงขึ้น = curvature เปลี่ยนช้าลง (นิ่งขึ้น)
-CURVATURE_RATE_LIMIT_PER_STEP = 0.008   # จำกัดการเปลี่ยน curvature ต่อ frame
+# Curvature temporal smoothing โ€” เธฅเธ” spike เธเธฒเธ mask noise, เธเธฑเธ lane เธเธดเนเธเธเธถเนเธ
+CURVATURE_EMA_ALPHA = 0.50       # เธชเธนเธเธเธถเนเธ = curvature เน€เธเธฅเธตเนเธขเธเธเนเธฒเธฅเธ (เธเธดเนเธเธเธถเนเธ)
+CURVATURE_RATE_LIMIT_PER_STEP = 0.008   # เธเธณเธเธฑเธ”เธเธฒเธฃเน€เธเธฅเธตเนเธขเธ curvature เธ•เนเธญ frame
 MIN_POINTS_POLY     = 8
-N_WINDOWS           = 12                      # เพิ่ม = แบ่งแถวถี่ขึ้น → ติดตามเลนไปไกลขึ้น
+N_WINDOWS           = 12                      # เน€เธเธดเนเธก = เนเธเนเธเนเธ–เธงเธ–เธตเนเธเธถเนเธ โ’ เธ•เธดเธ”เธ•เธฒเธกเน€เธฅเธเนเธเนเธเธฅเธเธถเนเธ
 MARGIN_WINDOW       = 60                      # wider margin for highway (was 50)
-MIN_PIX_WINDOW      = 14                      # ลด = รับจุดไกลที่เบาบางได้ (เดิม 20)
+MIN_PIX_WINDOW      = 14                      # เธฅเธ” = เธฃเธฑเธเธเธธเธ”เนเธเธฅเธ—เธตเนเน€เธเธฒเธเธฒเธเนเธ”เน (เน€เธ”เธดเธก 20)
 
-# ── Phase 1: raw UNet mask → full line (ลดเส้นปะ/จุดต่อจุด) ─────────────────
-MASK_DILATE_THIN        = (3, 3)               # ขยายเส้นเล็กให้หนาขึ้นก่อน close (เส้นเล็กๆ ก็จับ)
+# โ”€โ”€ Phase 1: raw UNet mask โ’ full line (เธฅเธ”เน€เธชเนเธเธเธฐ/เธเธธเธ”เธ•เนเธญเธเธธเธ”) โ”€โ”€โ”€โ”€โ”€โ”€โ”€โ”€โ”€โ”€โ”€โ”€โ”€โ”€โ”€โ”€โ”€
+MASK_DILATE_THIN        = (3, 3)               # เธเธขเธฒเธขเน€เธชเนเธเน€เธฅเนเธเนเธซเนเธซเธเธฒเธเธถเนเธเธเนเธญเธ close (เน€เธชเนเธเน€เธฅเนเธเน เธเนเธเธฑเธ)
 MASK_CLOSE_KERNEL_SMALL = (7, 7)             # initial close (existing)
-# MASK_DILATE_VERTICAL, MASK_CLOSE_KERNEL_LARGE จาก config (ลดความหนา raw mask)
-MASK_EMA_ALPHA          = 0.2                # ลดจาก 0.4 → 0.2 (80% current, 20% prev)
-MASK_EMA_SEAM_CHANGE_RATIO = 0.25           # ถ้า mask เปลี่ยนเกินอัตรานี้ถือว่ารอยต่อ → ใช้ alpha_seam
-MASK_EMA_ALPHA_SEAM     = 0.2               # ที่รอยต่อ: 20% prev, 80% current (ไม่ให้ mask ค้าง)
+# MASK_DILATE_VERTICAL, MASK_CLOSE_KERNEL_LARGE เธเธฒเธ config (เธฅเธ”เธเธงเธฒเธกเธซเธเธฒ raw mask)
+MASK_EMA_ALPHA          = 0.2                # เธฅเธ”เธเธฒเธ 0.4 โ’ 0.2 (80% current, 20% prev)
+MASK_EMA_SEAM_CHANGE_RATIO = 0.25           # เธ–เนเธฒ mask เน€เธเธฅเธตเนเธขเธเน€เธเธดเธเธญเธฑเธ•เธฃเธฒเธเธตเนเธ–เธทเธญเธงเนเธฒเธฃเธญเธขเธ•เนเธญ โ’ เนเธเน alpha_seam
+MASK_EMA_ALPHA_SEAM     = 0.2               # เธ—เธตเนเธฃเธญเธขเธ•เนเธญ: 20% prev, 80% current (เนเธกเนเนเธซเน mask เธเนเธฒเธ)
 
-# ── Peter Moran's Robust Lane Tracking ─────────────────────────────────────
+# โ”€โ”€ Peter Moran's Robust Lane Tracking โ”€โ”€โ”€โ”€โ”€โ”€โ”€โ”€โ”€โ”€โ”€โ”€โ”€โ”€โ”€โ”€โ”€โ”€โ”€โ”€โ”€โ”€โ”€โ”€โ”€โ”€โ”€โ”€โ”€โ”€โ”€โ”€โ”€โ”€โ”€โ”€โ”€
 WINDOW_MIN_PIXEL_COVERAGE = 0.60  # 60% pixel coverage threshold (Peter Moran)
 MAX_FROZEN_FRAMES = 5              # Drop window after frozen this many frames
 
-# ── Phase 4: รอยต่อไม่ค้าง/ไม่เพี้ยน ─────────────────────────────────────────
-MAX_FRAMES_STALE_CENTER = 3                 # เกินนี้ให้ reset center+Kalman; กลับมาแล้ว re-init ไม่ผสมเก่า
+# โ”€โ”€ Phase 4: เธฃเธญเธขเธ•เนเธญเนเธกเนเธเนเธฒเธ/เนเธกเนเน€เธเธตเนเธขเธ โ”€โ”€โ”€โ”€โ”€โ”€โ”€โ”€โ”€โ”€โ”€โ”€โ”€โ”€โ”€โ”€โ”€โ”€โ”€โ”€โ”€โ”€โ”€โ”€โ”€โ”€โ”€โ”€โ”€โ”€โ”€โ”€โ”€โ”€โ”€โ”€โ”€โ”€โ”€โ”€โ”€
+MAX_FRAMES_STALE_CENTER = 3                 # เน€เธเธดเธเธเธตเนเนเธซเน reset center+Kalman; เธเธฅเธฑเธเธกเธฒเนเธฅเนเธง re-init เนเธกเนเธเธชเธกเน€เธเนเธฒ
 
-# ── BEV display: เส้นไม่กระตุก/ไม่หมุน ─────────────────────────────────────
-BEV_DISPLAY_EMA_ALPHA = 0.3                 # ลดจาก 0.5 → 0.3 (30% prev, 70% current)
+# โ”€โ”€ BEV display: เน€เธชเนเธเนเธกเนเธเธฃเธฐเธ•เธธเธ/เนเธกเนเธซเธกเธธเธ โ”€โ”€โ”€โ”€โ”€โ”€โ”€โ”€โ”€โ”€โ”€โ”€โ”€โ”€โ”€โ”€โ”€โ”€โ”€โ”€โ”€โ”€โ”€โ”€โ”€โ”€โ”€โ”€โ”€โ”€โ”€โ”€โ”€โ”€โ”€โ”€โ”€
+BEV_DISPLAY_EMA_ALPHA = 0.3                 # เธฅเธ”เธเธฒเธ 0.5 โ’ 0.3 (30% prev, 70% current)
 
-# ── BEV / lane overlay line thickness (ลดเส้นหนาเกิน) ──────────────────────
+# โ”€โ”€ BEV / lane overlay line thickness (เธฅเธ”เน€เธชเนเธเธซเธเธฒเน€เธเธดเธ) โ”€โ”€โ”€โ”€โ”€โ”€โ”€โ”€โ”€โ”€โ”€โ”€โ”€โ”€โ”€โ”€โ”€โ”€โ”€โ”€โ”€โ”€
 BEV_VIS_CENTER_THICKNESS = 3
 BEV_VIS_BOUNDARY_THICKNESS = 2
 LANE_OVERLAY_CENTER_THICKNESS = 5
 LANE_OVERLAY_BOUNDARY_THICKNESS = 2
 
-# ── BEV dimensions: match camera frame size (set in pipeline __init__) ───────
+# โ”€โ”€ BEV dimensions: match camera frame size (set in pipeline __init__) โ”€โ”€โ”€โ”€โ”€โ”€โ”€
 # These are module-level defaults; pipeline overrides them per instance.
 _BEV_H = 400
 _BEV_W = 600
 
 
-# ═══════════════════════════════════════════════════════════════════════════
+# โ•โ•โ•โ•โ•โ•โ•โ•โ•โ•โ•โ•โ•โ•โ•โ•โ•โ•โ•โ•โ•โ•โ•โ•โ•โ•โ•โ•โ•โ•โ•โ•โ•โ•โ•โ•โ•โ•โ•โ•โ•โ•โ•โ•โ•โ•โ•โ•โ•โ•โ•โ•โ•โ•โ•โ•โ•โ•โ•โ•โ•โ•โ•โ•โ•โ•โ•โ•โ•โ•โ•โ•โ•โ•โ•
 # Data classes
-# ═══════════════════════════════════════════════════════════════════════════
+# โ•โ•โ•โ•โ•โ•โ•โ•โ•โ•โ•โ•โ•โ•โ•โ•โ•โ•โ•โ•โ•โ•โ•โ•โ•โ•โ•โ•โ•โ•โ•โ•โ•โ•โ•โ•โ•โ•โ•โ•โ•โ•โ•โ•โ•โ•โ•โ•โ•โ•โ•โ•โ•โ•โ•โ•โ•โ•โ•โ•โ•โ•โ•โ•โ•โ•โ•โ•โ•โ•โ•โ•โ•โ•โ•
 
 @dataclass
 class TrajectoryOutput:
@@ -195,9 +195,9 @@ class TrajectoryOutput:
     reference_path_from_perception: Optional[List[Tuple[float, float]]] = None
 
 
-# ═══════════════════════════════════════════════════════════════════════════
+# โ•โ•โ•โ•โ•โ•โ•โ•โ•โ•โ•โ•โ•โ•โ•โ•โ•โ•โ•โ•โ•โ•โ•โ•โ•โ•โ•โ•โ•โ•โ•โ•โ•โ•โ•โ•โ•โ•โ•โ•โ•โ•โ•โ•โ•โ•โ•โ•โ•โ•โ•โ•โ•โ•โ•โ•โ•โ•โ•โ•โ•โ•โ•โ•โ•โ•โ•โ•โ•โ•โ•โ•โ•โ•โ•
 # Kalman filter on polynomial coefficients
-# ═══════════════════════════════════════════════════════════════════════════
+# โ•โ•โ•โ•โ•โ•โ•โ•โ•โ•โ•โ•โ•โ•โ•โ•โ•โ•โ•โ•โ•โ•โ•โ•โ•โ•โ•โ•โ•โ•โ•โ•โ•โ•โ•โ•โ•โ•โ•โ•โ•โ•โ•โ•โ•โ•โ•โ•โ•โ•โ•โ•โ•โ•โ•โ•โ•โ•โ•โ•โ•โ•โ•โ•โ•โ•โ•โ•โ•โ•โ•โ•โ•โ•โ•
 
 class KalmanPoly:
     """Dropout-tolerant Kalman on [c2, c1, c0]."""
@@ -262,9 +262,9 @@ class CurvatureSmoother:
         self._prev = 0.0
 
 
-# ═══════════════════════════════════════════════════════════════════════════
+# โ•โ•โ•โ•โ•โ•โ•โ•โ•โ•โ•โ•โ•โ•โ•โ•โ•โ•โ•โ•โ•โ•โ•โ•โ•โ•โ•โ•โ•โ•โ•โ•โ•โ•โ•โ•โ•โ•โ•โ•โ•โ•โ•โ•โ•โ•โ•โ•โ•โ•โ•โ•โ•โ•โ•โ•โ•โ•โ•โ•โ•โ•โ•โ•โ•โ•โ•โ•โ•โ•โ•โ•โ•โ•โ•
 # Mask separation for left/right lane visualization
-# ═══════════════════════════════════════════════════════════════════════════
+# โ•โ•โ•โ•โ•โ•โ•โ•โ•โ•โ•โ•โ•โ•โ•โ•โ•โ•โ•โ•โ•โ•โ•โ•โ•โ•โ•โ•โ•โ•โ•โ•โ•โ•โ•โ•โ•โ•โ•โ•โ•โ•โ•โ•โ•โ•โ•โ•โ•โ•โ•โ•โ•โ•โ•โ•โ•โ•โ•โ•โ•โ•โ•โ•โ•โ•โ•โ•โ•โ•โ•โ•โ•โ•โ•
 
 def create_left_lane_mask(
     full_mask: np.ndarray,
@@ -330,9 +330,9 @@ def create_right_lane_mask(
     return right_mask
 
 
-# ═══════════════════════════════════════════════════════════════════════════
+# โ•โ•โ•โ•โ•โ•โ•โ•โ•โ•โ•โ•โ•โ•โ•โ•โ•โ•โ•โ•โ•โ•โ•โ•โ•โ•โ•โ•โ•โ•โ•โ•โ•โ•โ•โ•โ•โ•โ•โ•โ•โ•โ•โ•โ•โ•โ•โ•โ•โ•โ•โ•โ•โ•โ•โ•โ•โ•โ•โ•โ•โ•โ•โ•โ•โ•โ•โ•โ•โ•โ•โ•โ•โ•โ•
 # BEV transform
-# ═══════════════════════════════════════════════════════════════════════════
+# โ•โ•โ•โ•โ•โ•โ•โ•โ•โ•โ•โ•โ•โ•โ•โ•โ•โ•โ•โ•โ•โ•โ•โ•โ•โ•โ•โ•โ•โ•โ•โ•โ•โ•โ•โ•โ•โ•โ•โ•โ•โ•โ•โ•โ•โ•โ•โ•โ•โ•โ•โ•โ•โ•โ•โ•โ•โ•โ•โ•โ•โ•โ•โ•โ•โ•โ•โ•โ•โ•โ•โ•โ•โ•โ•
 
 def _get_bev_transform(
     cam_w: int, cam_h: int,
@@ -344,7 +344,7 @@ def _get_bev_transform(
     """
     Return (M, M_inv, src_pts, dst_pts).
 
-    src trapezoid: wide to capture all lane markings visible in FOV=110° camera.
+    src trapezoid: wide to capture all lane markings visible in FOV=110ยฐ camera.
     """
     top_y = int(cam_h * src_top_ratio)
     bot_y = int(cam_h * src_bot_ratio)
@@ -383,9 +383,9 @@ def bev_transform(mask: np.ndarray, cam_w: int, cam_h: int,
     return bev
 
 
-# ═══════════════════════════════════════════════════════════════════════════
-# BEV pixel ↔ vehicle-frame XY
-# ═══════════════════════════════════════════════════════════════════════════
+# โ•โ•โ•โ•โ•โ•โ•โ•โ•โ•โ•โ•โ•โ•โ•โ•โ•โ•โ•โ•โ•โ•โ•โ•โ•โ•โ•โ•โ•โ•โ•โ•โ•โ•โ•โ•โ•โ•โ•โ•โ•โ•โ•โ•โ•โ•โ•โ•โ•โ•โ•โ•โ•โ•โ•โ•โ•โ•โ•โ•โ•โ•โ•โ•โ•โ•โ•โ•โ•โ•โ•โ•โ•โ•โ•
+# BEV pixel โ” vehicle-frame XY
+# โ•โ•โ•โ•โ•โ•โ•โ•โ•โ•โ•โ•โ•โ•โ•โ•โ•โ•โ•โ•โ•โ•โ•โ•โ•โ•โ•โ•โ•โ•โ•โ•โ•โ•โ•โ•โ•โ•โ•โ•โ•โ•โ•โ•โ•โ•โ•โ•โ•โ•โ•โ•โ•โ•โ•โ•โ•โ•โ•โ•โ•โ•โ•โ•โ•โ•โ•โ•โ•โ•โ•โ•โ•โ•โ•
 
 def _bev_px_to_vehicle_xy(
     row: np.ndarray, col: np.ndarray,
@@ -419,7 +419,7 @@ def _bev_coeffs_to_image_points(
     half_width_m: float = HALF_WIDTH_M,
     max_x_m: Optional[float] = None,
 ) -> Tuple[Optional[np.ndarray], Optional[np.ndarray]]:
-    """Convert BEV left/right poly coeffs to image-space (row, col) for segment display. max_x_m = ตัดยอด."""
+    """Convert BEV left/right poly coeffs to image-space (row, col) for segment display. max_x_m = เธ•เธฑเธ”เธขเธญเธ”."""
     draw_to = min(lookahead_m, max_x_m) if max_x_m is not None else lookahead_m
     n_pts = max(bev_h * 2, 80)
     x_m = np.linspace(0, draw_to, n_pts)
@@ -442,15 +442,15 @@ def _bev_coeffs_to_image_points(
     return left_px_img, right_px_img
 
 
-# ═══════════════════════════════════════════════════════════════════════════
+# โ•โ•โ•โ•โ•โ•โ•โ•โ•โ•โ•โ•โ•โ•โ•โ•โ•โ•โ•โ•โ•โ•โ•โ•โ•โ•โ•โ•โ•โ•โ•โ•โ•โ•โ•โ•โ•โ•โ•โ•โ•โ•โ•โ•โ•โ•โ•โ•โ•โ•โ•โ•โ•โ•โ•โ•โ•โ•โ•โ•โ•โ•โ•โ•โ•โ•โ•โ•โ•โ•โ•โ•โ•โ•โ•
 # Mask quality: 2-stage check (pixel count + spatial continuity)
-# ═══════════════════════════════════════════════════════════════════════════
+# โ•โ•โ•โ•โ•โ•โ•โ•โ•โ•โ•โ•โ•โ•โ•โ•โ•โ•โ•โ•โ•โ•โ•โ•โ•โ•โ•โ•โ•โ•โ•โ•โ•โ•โ•โ•โ•โ•โ•โ•โ•โ•โ•โ•โ•โ•โ•โ•โ•โ•โ•โ•โ•โ•โ•โ•โ•โ•โ•โ•โ•โ•โ•โ•โ•โ•โ•โ•โ•โ•โ•โ•โ•โ•โ•
 
 MIN_PX_TOTAL = 300
 N_STRIPS = 5
 MIN_PX_PER_STRIP = 20
-CONTINUOUS_STRIPS_INVALID = 3   # < 3 strips with enough px → invalid
-CONTINUOUS_STRIPS_DEGRADED = 5   # >= 5 → valid; 3–4 → degraded
+CONTINUOUS_STRIPS_INVALID = 3   # < 3 strips with enough px โ’ invalid
+CONTINUOUS_STRIPS_DEGRADED = 5   # >= 5 โ’ valid; 3โ€“4 โ’ degraded
 
 
 def check_mask_quality(
@@ -462,12 +462,12 @@ def check_mask_quality(
     """
     2-stage lane mask validation to reduce false LANE INVALID.
 
-    Stage 1: total white pixels < min_px_total → invalid.
+    Stage 1: total white pixels < min_px_total โ’ invalid.
     Stage 2: divide ROI into n_strips horizontal strips; count strips with
              pixel count >= min_px_per_strip.
-      - continuous_strips < 3 → invalid (broken line)
-      - 3 <= continuous_strips < 5 → degraded (use lower section / still show valid)
-      - continuous_strips >= 5 → valid
+      - continuous_strips < 3 โ’ invalid (broken line)
+      - 3 <= continuous_strips < 5 โ’ degraded (use lower section / still show valid)
+      - continuous_strips >= 5 โ’ valid
 
     Returns: "valid" | "degraded" | "invalid"
     """
@@ -495,9 +495,9 @@ def check_mask_quality(
     return "degraded"
 
 
-# ═══════════════════════════════════════════════════════════════════════════
+# โ•โ•โ•โ•โ•โ•โ•โ•โ•โ•โ•โ•โ•โ•โ•โ•โ•โ•โ•โ•โ•โ•โ•โ•โ•โ•โ•โ•โ•โ•โ•โ•โ•โ•โ•โ•โ•โ•โ•โ•โ•โ•โ•โ•โ•โ•โ•โ•โ•โ•โ•โ•โ•โ•โ•โ•โ•โ•โ•โ•โ•โ•โ•โ•โ•โ•โ•โ•โ•โ•โ•โ•โ•โ•โ•
 # Sliding window search  (returns pixel coords + vehicle XY)
-# ═══════════════════════════════════════════════════════════════════════════
+# โ•โ•โ•โ•โ•โ•โ•โ•โ•โ•โ•โ•โ•โ•โ•โ•โ•โ•โ•โ•โ•โ•โ•โ•โ•โ•โ•โ•โ•โ•โ•โ•โ•โ•โ•โ•โ•โ•โ•โ•โ•โ•โ•โ•โ•โ•โ•โ•โ•โ•โ•โ•โ•โ•โ•โ•โ•โ•โ•โ•โ•โ•โ•โ•โ•โ•โ•โ•โ•โ•โ•โ•โ•โ•โ•
 
 
 def is_window_outlier(
@@ -533,8 +533,8 @@ def is_window_outlier(
 
 def _rightmost_peak(hist: np.ndarray, min_ratio: float = 0.25) -> int:
     """
-    คืน index ที่อยู่ขวาสุดใน hist ที่มีค่า >= max*min_ratio (ให้เส้นขวารับขอบถนน).
-    hist = histogram ของครึ่งขวา BEV (index 0 = กลางภาพ).
+    เธเธทเธ index เธ—เธตเนเธญเธขเธนเนเธเธงเธฒเธชเธธเธ”เนเธ hist เธ—เธตเนเธกเธตเธเนเธฒ >= max*min_ratio (เนเธซเนเน€เธชเนเธเธเธงเธฒเธฃเธฑเธเธเธญเธเธ–เธเธ).
+    hist = histogram เธเธญเธเธเธฃเธถเนเธเธเธงเธฒ BEV (index 0 = เธเธฅเธฒเธเธ เธฒเธ).
     """
     if len(hist) == 0:
         return 0
@@ -570,16 +570,16 @@ def sliding_window_search(
     use mirror of left at expected lane width.
 
     Returns:
-      left_xy, right_xy                   — vehicle-frame points (N, 2)
-      left_px, right_px                   — pixel points (N, 2) = (row, col) for visualization
-      raw_left_windows, raw_right_windows — ALL windows (for red visualization)
-      filt_left_windows, filt_right_windows — ACCEPTED windows (for green visualization)
-      p2_case                             — detection case
+      left_xy, right_xy                   โ€” vehicle-frame points (N, 2)
+      left_px, right_px                   โ€” pixel points (N, 2) = (row, col) for visualization
+      raw_left_windows, raw_right_windows โ€” ALL windows (for red visualization)
+      filt_left_windows, filt_right_windows โ€” ACCEPTED windows (for green visualization)
+      p2_case                             โ€” detection case
     """
     h, w = bev_binary.shape
     mid_col = w // 2
 
-    # Distance-weighted histograms: แถวบน (ไกล) น้ำหนักมาก — boost lane ไกล
+    # Distance-weighted histograms: เนเธ–เธงเธเธ (เนเธเธฅ) เธเนเธณเธซเธเธฑเธเธกเธฒเธ โ€” boost lane เนเธเธฅ
     bottom = bev_binary[int(h * BEV_LANE_SEARCH_TOP_RATIO):, :]
     n_rows = bottom.shape[0]
     weights = np.linspace(BEV_HISTOGRAM_WEIGHT_FAR, BEV_HISTOGRAM_WEIGHT_NEAR, n_rows)[:, np.newaxis]
@@ -613,7 +613,7 @@ def sliding_window_search(
     # Peter Moran: separate raw (all) vs filtered (accepted) windows
     raw_left_wins, raw_right_wins = [], []      # Red: all windows
     filt_left_wins, filt_right_wins = [], []    # Green: accepted only
-    margin_min = 15  # clamp เพื่อไม่ให้ window แคบเกินไป
+    margin_min = 15  # clamp เน€เธเธทเนเธญเนเธกเนเนเธซเน window เนเธเธเน€เธเธดเธเนเธ
 
     for win_i in range(n_windows):
         y_lo = h - (win_i + 1) * window_h
@@ -623,7 +623,7 @@ def sliding_window_search(
         y_mid = (y_lo + y_hi) / 2.0
         y_norm = y_mid / max(h, 1)
         margin_dyn = max(margin_min, int(margin * (1 - y_norm * 0.5)))
-        # ระยะไกล (แถวบน BEV): ใช้ min_pix ต่ำลง เพื่อให้จับเลนที่เบาบางได้
+        # เธฃเธฐเธขเธฐเนเธเธฅ (เนเธ–เธงเธเธ BEV): เนเธเน min_pix เธ•เนเธณเธฅเธ เน€เธเธทเนเธญเนเธซเนเธเธฑเธเน€เธฅเธเธ—เธตเนเน€เธเธฒเธเธฒเธเนเธ”เน
         min_pix_win = min_pix if y_norm >= 0.5 else max(6, min_pix - 6)
 
         # Left window (independent) with Peter Moran's outlier detection
@@ -695,9 +695,9 @@ def sliding_window_search(
     )
 
 
-# ═══════════════════════════════════════════════════════════════════════════
+# โ•โ•โ•โ•โ•โ•โ•โ•โ•โ•โ•โ•โ•โ•โ•โ•โ•โ•โ•โ•โ•โ•โ•โ•โ•โ•โ•โ•โ•โ•โ•โ•โ•โ•โ•โ•โ•โ•โ•โ•โ•โ•โ•โ•โ•โ•โ•โ•โ•โ•โ•โ•โ•โ•โ•โ•โ•โ•โ•โ•โ•โ•โ•โ•โ•โ•โ•โ•โ•โ•โ•โ•โ•โ•โ•
 # Polynomial fit (robust IRLS-style)
-# ═══════════════════════════════════════════════════════════════════════════
+# โ•โ•โ•โ•โ•โ•โ•โ•โ•โ•โ•โ•โ•โ•โ•โ•โ•โ•โ•โ•โ•โ•โ•โ•โ•โ•โ•โ•โ•โ•โ•โ•โ•โ•โ•โ•โ•โ•โ•โ•โ•โ•โ•โ•โ•โ•โ•โ•โ•โ•โ•โ•โ•โ•โ•โ•โ•โ•โ•โ•โ•โ•โ•โ•โ•โ•โ•โ•โ•โ•โ•โ•โ•โ•โ•
 
 def _fit_poly_robust(x: np.ndarray, y: np.ndarray, order: int = POLY_ORDER) -> Optional[np.ndarray]:
     if len(x) < MIN_POINTS_POLY:
@@ -717,12 +717,12 @@ def _fit_poly_robust(x: np.ndarray, y: np.ndarray, order: int = POLY_ORDER) -> O
 
 
 def _mirror_coeffs(coeffs: np.ndarray) -> np.ndarray:
-    """Mirror lane coeffs across center (y → -y) for full line when one side is missing."""
+    """Mirror lane coeffs across center (y โ’ -y) for full line when one side is missing."""
     return -np.asarray(coeffs, dtype=np.float64)
 
 
 def _densify_xy(xy: np.ndarray, n_pts: int = 40) -> np.ndarray:
-    """Sort by x and interpolate to get dense points → poly fit เนียนขึ้น (full line)."""
+    """Sort by x and interpolate to get dense points โ’ poly fit เน€เธเธตเธขเธเธเธถเนเธ (full line)."""
     if xy is None or len(xy) < 2:
         return xy
     x, y = xy[:, 0], xy[:, 1]
@@ -740,7 +740,7 @@ def polynomial_fit(
 ) -> Optional[Tuple[np.ndarray, np.ndarray, np.ndarray]]:
     if left_xy is None or right_xy is None:
         return None
-    # Densify points ก่อน fit → เส้นต่อเนื่อง full line (ลด dashed/จุดต่อจุด)
+    # Densify points เธเนเธญเธ fit โ’ เน€เธชเนเธเธ•เนเธญเน€เธเธทเนเธญเธ full line (เธฅเธ” dashed/เธเธธเธ”เธ•เนเธญเธเธธเธ”)
     left_xy_d = _densify_xy(left_xy)
     right_xy_d = _densify_xy(right_xy)
     if left_xy_d is None or right_xy_d is None:
@@ -749,7 +749,7 @@ def polynomial_fit(
         return None
     c_l = _fit_poly_robust(left_xy_d[:, 0], left_xy_d[:, 1])
     c_r = _fit_poly_robust(right_xy_d[:, 0], right_xy_d[:, 1])
-    # ถ้าฝั่งใดฝั่งหนึ่ง fit ไม่ได้ ใช้ mirror จากอีกฝั่ง → ได้ full line เสมอ
+    # เธ–เนเธฒเธเธฑเนเธเนเธ”เธเธฑเนเธเธซเธเธถเนเธ fit เนเธกเนเนเธ”เน เนเธเน mirror เธเธฒเธเธญเธตเธเธเธฑเนเธ โ’ เนเธ”เน full line เน€เธชเธกเธญ
     if c_l is None and c_r is not None:
         c_l = _mirror_coeffs(c_r)
     if c_r is None and c_l is not None:
@@ -790,9 +790,9 @@ def compute_rich_confidence(
     return float(np.clip(conf, 0.0, 1.0))
 
 
-# ═══════════════════════════════════════════════════════════════════════════
+# โ•โ•โ•โ•โ•โ•โ•โ•โ•โ•โ•โ•โ•โ•โ•โ•โ•โ•โ•โ•โ•โ•โ•โ•โ•โ•โ•โ•โ•โ•โ•โ•โ•โ•โ•โ•โ•โ•โ•โ•โ•โ•โ•โ•โ•โ•โ•โ•โ•โ•โ•โ•โ•โ•โ•โ•โ•โ•โ•โ•โ•โ•โ•โ•โ•โ•โ•โ•โ•โ•โ•โ•โ•โ•โ•
 # Trajectory generation
-# ═══════════════════════════════════════════════════════════════════════════
+# โ•โ•โ•โ•โ•โ•โ•โ•โ•โ•โ•โ•โ•โ•โ•โ•โ•โ•โ•โ•โ•โ•โ•โ•โ•โ•โ•โ•โ•โ•โ•โ•โ•โ•โ•โ•โ•โ•โ•โ•โ•โ•โ•โ•โ•โ•โ•โ•โ•โ•โ•โ•โ•โ•โ•โ•โ•โ•โ•โ•โ•โ•โ•โ•โ•โ•โ•โ•โ•โ•โ•โ•โ•โ•โ•
 
 def generate_trajectory(
     center_coeffs: np.ndarray,
@@ -854,9 +854,9 @@ def mpc_reference_output(
     return cte, heading_err, np.clip(curv_val, -MAX_CURVATURE, MAX_CURVATURE), v_at_ego
 
 
-# ═══════════════════════════════════════════════════════════════════════════
+# โ•โ•โ•โ•โ•โ•โ•โ•โ•โ•โ•โ•โ•โ•โ•โ•โ•โ•โ•โ•โ•โ•โ•โ•โ•โ•โ•โ•โ•โ•โ•โ•โ•โ•โ•โ•โ•โ•โ•โ•โ•โ•โ•โ•โ•โ•โ•โ•โ•โ•โ•โ•โ•โ•โ•โ•โ•โ•โ•โ•โ•โ•โ•โ•โ•โ•โ•โ•โ•โ•โ•โ•โ•โ•โ•
 # Visualization helpers
-# ═══════════════════════════════════════════════════════════════════════════
+# โ•โ•โ•โ•โ•โ•โ•โ•โ•โ•โ•โ•โ•โ•โ•โ•โ•โ•โ•โ•โ•โ•โ•โ•โ•โ•โ•โ•โ•โ•โ•โ•โ•โ•โ•โ•โ•โ•โ•โ•โ•โ•โ•โ•โ•โ•โ•โ•โ•โ•โ•โ•โ•โ•โ•โ•โ•โ•โ•โ•โ•โ•โ•โ•โ•โ•โ•โ•โ•โ•โ•โ•โ•โ•โ•
 
 def _draw_sliding_window_vis(
     bev_binary: np.ndarray,
@@ -872,13 +872,13 @@ def _draw_sliding_window_vis(
     max_x_m: Optional[float] = None,
 ) -> np.ndarray:
     """
-    BEV visualization: raw BEV เป็นพื้นหลังจาง + search windows, lane pixels, left/right/center curves.
-    - Centerline: thick green line (แนวยาว) — classical style
+    BEV visualization: raw BEV เน€เธเนเธเธเธทเนเธเธซเธฅเธฑเธเธเธฒเธ + search windows, lane pixels, left/right/center curves.
+    - Centerline: thick green line (เนเธเธงเธขเธฒเธง) โ€” classical style
     - Left/right: yellow/blue curves
     """
     h, w = bev_binary.shape
     vis = np.zeros((h, w, 3), dtype=np.uint8)
-    # Option A: blend raw BEV (ที่ UNet ให้มา) เป็นพื้นหลังจาง — เห็นแถบ raw และสองเส้นที่ pipeline สร้าง
+    # Option A: blend raw BEV (เธ—เธตเน UNet เนเธซเนเธกเธฒ) เน€เธเนเธเธเธทเนเธเธซเธฅเธฑเธเธเธฒเธ โ€” เน€เธซเนเธเนเธ–เธ raw เนเธฅเธฐเธชเธญเธเน€เธชเนเธเธ—เธตเน pipeline เธชเธฃเนเธฒเธ
     bev_bg = np.stack([bev_binary, bev_binary, bev_binary], axis=-1).astype(np.float32) * 0.35
     vis = (np.clip(bev_bg, 0, 255)).astype(np.uint8)
 
@@ -899,7 +899,7 @@ def _draw_sliding_window_vis(
             if 0 <= r < h and 0 <= c < w:
                 vis[r, c] = (255, 0, 0)     # blue (BGR)
 
-    # Centerline: thick green (แนวยาว) — primary
+    # Centerline: thick green (เนเธเธงเธขเธฒเธง) โ€” primary
     center = center_coeffs
     if center is None and left_coeffs is not None and right_coeffs is not None:
         center = (np.asarray(left_coeffs) + np.asarray(right_coeffs)) / 2.0
@@ -915,7 +915,7 @@ def _draw_sliding_window_vis(
         _draw_poly_curve_bev(vis, right_coeffs, h, w, lookahead_m, half_width_m,
                              color=(255, 100, 0), thickness=BEV_VIS_BOUNDARY_THICKNESS, max_x_m=max_x_m)
 
-    # Optional: หลายเส้น — draw adjacent lane candidates (grey) in BEV
+    # Optional: เธซเธฅเธฒเธขเน€เธชเนเธ โ€” draw adjacent lane candidates (grey) in BEV
     # (lane_clustering module removed during cleanup; adjacent lane viz disabled)
     # try:
     #     candidates = cluster_lane_candidates(...)
@@ -934,7 +934,7 @@ def _draw_poly_curve_bev(
     color: Tuple, thickness: int = 2,
     max_x_m: Optional[float] = None,
 ) -> None:
-    """Draw polynomial curve onto BEV canvas (in-place). max_x_m = ตัดยอดที่ปลายที่จับได้."""
+    """Draw polynomial curve onto BEV canvas (in-place). max_x_m = เธ•เธฑเธ”เธขเธญเธ”เธ—เธตเนเธเธฅเธฒเธขเธ—เธตเนเธเธฑเธเนเธ”เน."""
     draw_to = min(lookahead_m, max_x_m) if max_x_m is not None else lookahead_m
     x_m = np.linspace(0, draw_to, bev_h * 2)
     y_m = np.polyval(coeffs, x_m)
@@ -954,12 +954,12 @@ def _center_to_strip_boundaries(
     half_width_m: float,
 ) -> Tuple[np.ndarray, np.ndarray]:
     """
-    จาก centerline (vehicle frame: x ไปข้างหน้า, y ไปข้างขวา) คำนวณขอบซ้าย/ขวา
-    เป็น strip ความกว้างคงที่ในแนวตั้งฉาก — ตรงเมื่อถนนตรง โค้งตามทางโค้ง.
+    เธเธฒเธ centerline (vehicle frame: x เนเธเธเนเธฒเธเธซเธเนเธฒ, y เนเธเธเนเธฒเธเธเธงเธฒ) เธเธณเธเธงเธ“เธเธญเธเธเนเธฒเธข/เธเธงเธฒ
+    เน€เธเนเธ strip เธเธงเธฒเธกเธเธงเนเธฒเธเธเธเธ—เธตเนเนเธเนเธเธงเธ•เธฑเนเธเธเธฒเธ โ€” เธ•เธฃเธเน€เธกเธทเนเธญเธ–เธเธเธ•เธฃเธ เนเธเนเธเธ•เธฒเธกเธ—เธฒเธเนเธเนเธ.
 
     Returns:
-        left_xy: (N, 2) array [x, y] vehicle frame สำหรับขอบซ้าย
-        right_xy: (N, 2) array [x, y] vehicle frame สำหรับขอบขวา
+        left_xy: (N, 2) array [x, y] vehicle frame เธชเธณเธซเธฃเธฑเธเธเธญเธเธเนเธฒเธข
+        right_xy: (N, 2) array [x, y] vehicle frame เธชเธณเธซเธฃเธฑเธเธเธญเธเธเธงเธฒ
     """
     if center_coeffs is None or len(center_coeffs) < 1 or len(x_m) < 2:
         return np.zeros((0, 2), dtype=np.float64), np.zeros((0, 2), dtype=np.float64)
@@ -996,7 +996,7 @@ def _draw_lane_overlay(
 ) -> np.ndarray:
     """
     Lane overlay on original perspective: green longitudinal lines (classical style) + light fill.
-    - max_x_m: ตัดยอดเส้นที่ระยะนี้ (ปลายที่จับได้); None = ใช้ lookahead_m เต็ม
+    - max_x_m: เธ•เธฑเธ”เธขเธญเธ”เน€เธชเนเธเธ—เธตเนเธฃเธฐเธขเธฐเธเธตเน (เธเธฅเธฒเธขเธ—เธตเนเธเธฑเธเนเธ”เน); None = เนเธเน lookahead_m เน€เธ•เนเธก
     """
     overlay_bgr = cv2.cvtColor(rgb.copy(), cv2.COLOR_RGB2BGR)
     fill_bgr = (fill_color[2], fill_color[1], fill_color[0])  # BGR for cv2
@@ -1062,7 +1062,7 @@ def _draw_lane_overlay(
     if center is None and left_coeffs is not None and right_coeffs is not None:
         center = (np.asarray(left_coeffs) + np.asarray(right_coeffs)) / 2.0
 
-    # ── โหมดสี่เหลี่ยมคางหมู: วัดความกว้างต้น–ปลาย แล้ววาดเป็น trapezoid (ความกว้างจากคำนวณ) ──
+    # โ”€โ”€ เนเธซเธกเธ”เธชเธตเนเน€เธซเธฅเธตเนเธขเธกเธเธฒเธเธซเธกเธน: เธงเธฑเธ”เธเธงเธฒเธกเธเธงเนเธฒเธเธ•เนเธโ€“เธเธฅเธฒเธข เนเธฅเนเธงเธงเธฒเธ”เน€เธเนเธ trapezoid (เธเธงเธฒเธกเธเธงเนเธฒเธเธเธฒเธเธเธณเธเธงเธ“) โ”€โ”€
     use_trapezoid = bool(LANE_OVERLAY_TRAPEZOID)
     if use_trapezoid and draw_fill and left_coeffs is not None and right_coeffs is not None:
         w_min = LANE_FRAME_WIDTH_MIN_M
@@ -1077,13 +1077,13 @@ def _draw_lane_overlay(
         width_far = float(np.clip(width_far, w_min, w_max))
         center_0 = (y_l0 + y_r0) / 2.0
         center_far = (y_l_far + y_r_far) / 2.0
-        # สี่เหลี่ยมคางหมู: 4 จุด (ใกล้ซ้าย, ใกล้ขวา, ปลายขวา, ปลายซ้าย)
+        # เธชเธตเนเน€เธซเธฅเธตเนเธขเธกเธเธฒเธเธซเธกเธน: 4 เธเธธเธ” (เนเธเธฅเนเธเนเธฒเธข, เนเธเธฅเนเธเธงเธฒ, เธเธฅเธฒเธขเธเธงเธฒ, เธเธฅเธฒเธขเธเนเธฒเธข)
         left_xy_trap = np.array([[0.0, center_0 - width_near / 2.0], [draw_to, center_far - width_far / 2.0]])
         right_xy_trap = np.array([[0.0, center_0 + width_near / 2.0], [draw_to, center_far + width_far / 2.0]])
         poly_pts = xy_to_bev_poly(left_xy_trap, right_xy_trap)
         if poly_pts is not None:
             cv2.fillPoly(bev_canvas, [poly_pts], fill_bgr)
-        # เส้นขอบซ้าย/ขวา (เส้นตรงต้น–ปลาย) + เส้นกลางสี่เหลี่ยมคางหมู
+        # เน€เธชเนเธเธเธญเธเธเนเธฒเธข/เธเธงเธฒ (เน€เธชเนเธเธ•เธฃเธเธ•เนเธโ€“เธเธฅเธฒเธข) + เน€เธชเนเธเธเธฅเธฒเธเธชเธตเนเน€เธซเธฅเธตเนเธขเธกเธเธฒเธเธซเธกเธน
         for xy_side in (left_xy_trap, right_xy_trap):
             pts = to_bev_pts_xy(xy_side[:, 0], xy_side[:, 1])
             if pts is not None:
@@ -1104,7 +1104,7 @@ def _draw_lane_overlay(
         left_near_xy = np.column_stack((x_near, np.full_like(x_near, -hw)))
         right_near_xy = np.column_stack((x_near, np.full_like(x_near, hw)))
 
-    # 1) Fill: road-form / frame-width (center + strip) หรือ แนบขอบ (left/right coeffs) — ข้ามถ้าใช้ trapezoid
+    # 1) Fill: road-form / frame-width (center + strip) เธซเธฃเธทเธญ เนเธเธเธเธญเธ (left/right coeffs) โ€” เธเนเธฒเธกเธ–เนเธฒเนเธเน trapezoid
     use_center_strip = (use_road_form or use_frame_width) and center is not None and len(center) >= 1
     if use_center_strip and draw_fill and not use_trapezoid:
         if use_straight_near:
@@ -1153,7 +1153,7 @@ def _draw_lane_overlay(
                 poly_pts = np.vstack([left_pts, right_pts[::-1]]).astype(np.int32)
                 cv2.fillPoly(bev_canvas, [poly_pts], fill_bgr)
 
-    # 2) Centerline: straight near แล้วต่อโค้ง (ข้ามถ้าใช้ trapezoid — มีเส้นกลางในบล็อก trapezoid แล้ว)
+    # 2) Centerline: straight near เนเธฅเนเธงเธ•เนเธญเนเธเนเธ (เธเนเธฒเธกเธ–เนเธฒเนเธเน trapezoid โ€” เธกเธตเน€เธชเนเธเธเธฅเธฒเธเนเธเธเธฅเนเธญเธ trapezoid เนเธฅเนเธง)
     if center is not None and not use_trapezoid:
         if use_straight_near:
             y_center_near = np.zeros_like(x_near)
@@ -1166,7 +1166,7 @@ def _draw_lane_overlay(
         if pts_c is not None:
             cv2.polylines(bev_canvas, [pts_c], False, green_bgr, LANE_OVERLAY_CENTER_THICKNESS, cv2.LINE_AA)
 
-    # 3) Left/right boundary lines: straight near + curved far หรือจาก coeffs
+    # 3) Left/right boundary lines: straight near + curved far เธซเธฃเธทเธญเธเธฒเธ coeffs
     if use_center_strip:
         if use_straight_near:
             left_far_xy, right_far_xy = _center_to_strip_boundaries(center, x_far, effective_strip_half)
@@ -1309,8 +1309,8 @@ def _draw_lane_overlay_direct(
 
     Method:
     1. Sample points along left/right lane polynomials in vehicle frame
-    2. Convert vehicle (x,y) → BEV pixels
-    3. Use M_inv to warp BEV pixels → camera pixels
+    2. Convert vehicle (x,y) โ’ BEV pixels
+    3. Use M_inv to warp BEV pixels โ’ camera pixels
     4. Draw filled polygon directly in camera view
 
     Args:
@@ -1359,7 +1359,7 @@ def _draw_lane_overlay_direct(
     bev_pts_left = np.stack([cols_l, rows_l, np.ones_like(cols_l)], axis=1)
     bev_pts_right = np.stack([cols_r, rows_r, np.ones_like(cols_r)], axis=1)
 
-    # Warp to camera space using M_inv (BEV → camera perspective)
+    # Warp to camera space using M_inv (BEV โ’ camera perspective)
     cam_pts_left = (M_inv @ bev_pts_left.T).T
     cam_pts_right = (M_inv @ bev_pts_right.T).T
 
@@ -1427,7 +1427,7 @@ def _draw_lane_overlay_direct(
     if len(right_pts) >= 2:
         draw_dashed_line(blended, right_pts, white_bgr, thickness=3, dash_length=30, gap_length=15)
 
-    # Optional: Draw semi-transparent lane area (ช่องใหญ่) with very low alpha
+    # Optional: Draw semi-transparent lane area (เธเนเธญเธเนเธซเธเน) with very low alpha
     if len(left_pts) >= 2 and len(right_pts) >= 2:
         polygon = np.vstack([left_pts, right_pts[::-1]])
         fill_canvas = np.zeros_like(overlay_bgr)
@@ -1463,25 +1463,25 @@ def _draw_lane_overlay_direct(
     return cv2.cvtColor(blended.astype(np.uint8), cv2.COLOR_BGR2RGB)
 
 
-# ═══════════════════════════════════════════════════════════════════════════
+# โ•โ•โ•โ•โ•โ•โ•โ•โ•โ•โ•โ•โ•โ•โ•โ•โ•โ•โ•โ•โ•โ•โ•โ•โ•โ•โ•โ•โ•โ•โ•โ•โ•โ•โ•โ•โ•โ•โ•โ•โ•โ•โ•โ•โ•โ•โ•โ•โ•โ•โ•โ•โ•โ•โ•โ•โ•โ•โ•โ•โ•โ•โ•โ•โ•โ•โ•โ•โ•โ•โ•โ•โ•โ•โ•
 # Main pipeline
-# ═══════════════════════════════════════════════════════════════════════════
+# โ•โ•โ•โ•โ•โ•โ•โ•โ•โ•โ•โ•โ•โ•โ•โ•โ•โ•โ•โ•โ•โ•โ•โ•โ•โ•โ•โ•โ•โ•โ•โ•โ•โ•โ•โ•โ•โ•โ•โ•โ•โ•โ•โ•โ•โ•โ•โ•โ•โ•โ•โ•โ•โ•โ•โ•โ•โ•โ•โ•โ•โ•โ•โ•โ•โ•โ•โ•โ•โ•โ•โ•โ•โ•โ•
 
 class LaneTrajectoryPipeline:
     """
-    การจับเส้นแบบ phase (P1→P2→P3→P4→P5):
+    เธเธฒเธฃเธเธฑเธเน€เธชเนเธเนเธเธ phase (P1โ’P2โ’P3โ’P4โ’P5):
 
-    P1 Lane mask:     RGB → binary mask + confidence
-    P2 BEV + quality: mask → BEV warp, fill gaps, mask_quality
-    P3 Boundaries:    BEV → left/right/center coeffs (sliding window or ego tracker)
-    P4 Smooth center: center_coeffs_raw + Kalman → center_coeffs, geometry_valid
-    P5 Trajectory:    center_coeffs → (x_ref, y_ref, cte, heading, curvature, v_ref)
+    P1 Lane mask:     RGB โ’ binary mask + confidence
+    P2 BEV + quality: mask โ’ BEV warp, fill gaps, mask_quality
+    P3 Boundaries:    BEV โ’ left/right/center coeffs (sliding window or ego tracker)
+    P4 Smooth center: center_coeffs_raw + Kalman โ’ center_coeffs, geometry_valid
+    P5 Trajectory:    center_coeffs โ’ (x_ref, y_ref, cte, heading, curvature, v_ref)
     P6 Visualization: BEV window vis + lane overlay
 
     Returns TrajectoryOutput with:
-      .bev_binary     — BEV warped mask (Image 1 middle)
-      .bev_window_vis — colored sliding windows (Image 1 bottom)
-      .lane_overlay   — green filled lane on original frame (Image 2 bottom)
+      .bev_binary     โ€” BEV warped mask (Image 1 middle)
+      .bev_window_vis โ€” colored sliding windows (Image 1 bottom)
+      .lane_overlay   โ€” green filled lane on original frame (Image 2 bottom)
     """
 
     def __init__(
@@ -1498,7 +1498,7 @@ class LaneTrajectoryPipeline:
         kalman_r: float = KALMAN_R,
         lane_confidence_waypoint_only_threshold: float = 0.4,
         use_ego_lane_tracker: bool = True,
-        # BEV trapezoid — top ต่ำมาก = ใช้แถวบนเกือบทั้งภาพ = เห็นเลนเยอะมาก
+        # BEV trapezoid โ€” top เธ•เนเธณเธกเธฒเธ = เนเธเนเนเธ–เธงเธเธเน€เธเธทเธญเธเธ—เธฑเนเธเธ เธฒเธ = เน€เธซเนเธเน€เธฅเธเน€เธขเธญเธฐเธกเธฒเธ
         bev_top_ratio: float = 0.35,
         bev_bot_ratio: float = 0.98,
         bev_top_margin: float = 0.32,
@@ -1567,19 +1567,19 @@ class LaneTrajectoryPipeline:
         self._cam_f = cam_w / (2.0 * np.tan(np.radians(self._cam_fov / 2.0)))
         self._cam_cx = cam_w / 2.0
         self._cam_cy = cam_h / 2.0
-        # Camera extrinsics: pitch=-8°, height=2.0m, x_offset=1.5m
+        # Camera extrinsics: pitch=-8ยฐ, height=2.0m, x_offset=1.5m
         self._cam_pitch_rad = np.radians(-8.0)
         self._cam_height = 2.0
         self._cam_x_offset = 1.5
-        # Pre-compute rotation matrix: vehicle frame → camera frame
+        # Pre-compute rotation matrix: vehicle frame โ’ camera frame
         # Vehicle: X=forward, Y=right, Z=up
         # Camera: X_cam=right, Y_cam=down, Z_cam=forward
         sp = np.sin(self._cam_pitch_rad)
         cp = np.cos(self._cam_pitch_rad)
         R_base = np.array([[0, 1, 0], [0, 0, -1], [1, 0, 0]], dtype=np.float64)
         R_pitch = np.array([[1, 0, 0], [0, cp, -sp], [0, sp, cp]], dtype=np.float64)
-        self._R_v2c = R_pitch @ R_base       # vehicle → camera
-        self._R_c2v = self._R_v2c.T          # camera → vehicle
+        self._R_v2c = R_pitch @ R_base       # vehicle โ’ camera
+        self._R_c2v = self._R_v2c.T          # camera โ’ vehicle
 
     def reset(self) -> None:
         if self._kalman is not None:
@@ -1598,7 +1598,7 @@ class LaneTrajectoryPipeline:
         self._prev_draw_center = None
         self._prev_frame_width = None
 
-    # ── Image → Ground projection (rotation matrix + ray intersection) ───
+    # โ”€โ”€ Image โ’ Ground projection (rotation matrix + ray intersection) โ”€โ”€โ”€
     def _image_to_ground(self, rows: np.ndarray, cols: np.ndarray) -> Tuple[np.ndarray, np.ndarray]:
         """Project image pixels (row, col) to vehicle ground plane (x_forward, y_lateral).
 
@@ -1611,13 +1611,13 @@ class LaneTrajectoryPipeline:
         f = self._cam_f
         cx, cy = self._cam_cx, self._cam_cy
         h_cam = self._cam_height
-        R_c2v = self._R_c2v  # camera → vehicle rotation
+        R_c2v = self._R_c2v  # camera โ’ vehicle rotation
 
         n = len(rows)
         x_ground = np.full(n, -1.0)
         y_ground = np.full(n, 0.0)
 
-        # Normalized image coords → ray direction in camera frame
+        # Normalized image coords โ’ ray direction in camera frame
         nx = (cols - cx) / f
         ny = (rows - cy) / f
         # Ray in camera frame: (nx, ny, 1.0) for each pixel
@@ -1645,7 +1645,7 @@ class LaneTrajectoryPipeline:
         f = self._cam_f
         cx, cy = self._cam_cx, self._cam_cy
         h_cam = self._cam_height
-        R_v2c = self._R_v2c  # vehicle → camera rotation
+        R_v2c = self._R_v2c  # vehicle โ’ camera rotation
 
         # Vector from camera to ground point in vehicle frame: (x, y, -h_cam)
         vx = x_ground
@@ -1663,9 +1663,9 @@ class LaneTrajectoryPipeline:
 
         return rows, cols
 
-    # ── Phase 1: Lane mask (pixel) ─────────────────────────────────────────
+    # โ”€โ”€ Phase 1: Lane mask (pixel) โ”€โ”€โ”€โ”€โ”€โ”€โ”€โ”€โ”€โ”€โ”€โ”€โ”€โ”€โ”€โ”€โ”€โ”€โ”€โ”€โ”€โ”€โ”€โ”€โ”€โ”€โ”€โ”€โ”€โ”€โ”€โ”€โ”€โ”€โ”€โ”€โ”€โ”€โ”€โ”€โ”€
     def _phase1_lane_mask(self, rgb: np.ndarray, world=None, vehicle=None) -> Tuple[np.ndarray, float]:
-        """P1: RGB → binary mask + confidence. Optimized for speed."""
+        """P1: RGB โ’ binary mask + confidence. Optimized for speed."""
         img = cv2.resize(rgb, (self.cam_w, self.cam_h))
         mask_uint8, _, _ = self.detector.detect_lanes(img, world=world, vehicle=vehicle)
         mask = (mask_uint8 > 0).astype(np.uint8)
@@ -1680,9 +1680,9 @@ class LaneTrajectoryPipeline:
         conf = min(1.0, np.count_nonzero(roi) / max(roi.size * 0.05, 1))
         return mask, float(conf)
 
-    # ── Phase 2: Image-space lane extraction (no BEV) ──────────────────────
+    # โ”€โ”€ Phase 2: Image-space lane extraction (no BEV) โ”€โ”€โ”€โ”€โ”€โ”€โ”€โ”€โ”€โ”€โ”€โ”€โ”€โ”€โ”€โ”€โ”€โ”€โ”€โ”€โ”€โ”€
     def _phase2_bev_and_quality(self, mask: np.ndarray) -> Tuple[np.ndarray, str]:
-        """P2: mask → project lane pixels to ground plane. No BEV image created."""
+        """P2: mask โ’ project lane pixels to ground plane. No BEV image created."""
         ys, xs = np.where(mask > 0)
 
         if len(ys) < MIN_PX_TOTAL:
@@ -1712,7 +1712,7 @@ class LaneTrajectoryPipeline:
         quality = "valid" if n_valid >= MIN_PX_TOTAL else ("degraded" if n_valid >= 50 else "invalid")
         return self._empty_bev, quality
 
-    # ── Phase 3: Boundaries + centerline (image-space, no BEV) ──────────
+    # โ”€โ”€ Phase 3: Boundaries + centerline (image-space, no BEV) โ”€โ”€โ”€โ”€โ”€โ”€โ”€โ”€โ”€โ”€
     def _phase3_boundaries_and_center(
         self, bev_bin: np.ndarray
     ) -> Tuple[
@@ -1800,11 +1800,11 @@ class LaneTrajectoryPipeline:
                 raw_left_wins, raw_right_wins, filt_left_wins, filt_right_wins,
                 tracked, used_completion, p2_case, p3_case)
 
-    # ── Phase 4: Smooth center (Kalman) + geometry_valid ─────────────────
+    # โ”€โ”€ Phase 4: Smooth center (Kalman) + geometry_valid โ”€โ”€โ”€โ”€โ”€โ”€โ”€โ”€โ”€โ”€โ”€โ”€โ”€โ”€โ”€โ”€โ”€
     def _phase4_smooth_center(
         self, center_coeffs_raw: Optional[np.ndarray], mask_quality: str
     ) -> Tuple[Optional[np.ndarray], bool]:
-        """P4: center_coeffs_raw + Kalman → center_coeffs, geometry_valid. รอยต่อ: reset/re-init ไม่ค้างไม่เพี้ยน."""
+        """P4: center_coeffs_raw + Kalman โ’ center_coeffs, geometry_valid. เธฃเธญเธขเธ•เนเธญ: reset/re-init เนเธกเนเธเนเธฒเธเนเธกเนเน€เธเธตเนเธขเธ."""
         center_coeffs = None
         geometry_valid = False
         N = MAX_FRAMES_STALE_CENTER
@@ -1843,11 +1843,11 @@ class LaneTrajectoryPipeline:
             geometry_valid = False
         return center_coeffs, geometry_valid
 
-    # ── Phase 5: Trajectory + state (cte, heading, curvature) ─────────────
+    # โ”€โ”€ Phase 5: Trajectory + state (cte, heading, curvature) โ”€โ”€โ”€โ”€โ”€โ”€โ”€โ”€โ”€โ”€โ”€โ”€โ”€
     def _phase5_trajectory_and_state(
         self, center_coeffs: Optional[np.ndarray]
     ) -> Tuple[np.ndarray, np.ndarray, np.ndarray, np.ndarray, np.ndarray, float, float, float, float]:
-        """P5: center_coeffs → x_ref, y_ref, yaw_ref, curv_ref, v_ref, cte, heading_err, curvature, v_at_ego."""
+        """P5: center_coeffs โ’ x_ref, y_ref, yaw_ref, curv_ref, v_ref, cte, heading_err, curvature, v_at_ego."""
         if center_coeffs is not None:
             x_ref, y_ref, yaw_ref, curv_ref = generate_trajectory(
                 center_coeffs, ds_m=self.ds_m, lookahead_m=self.lookahead_m,
@@ -1868,7 +1868,7 @@ class LaneTrajectoryPipeline:
         self._prev_curvature = curvature
         return x_ref, y_ref, yaw_ref, curv_ref, v_ref, cte, heading_err, curvature, v_at_ego
 
-    # ── Phase 6: Visualization (vehicle-frame projection) ──────────────────
+    # โ”€โ”€ Phase 6: Visualization (vehicle-frame projection) โ”€โ”€โ”€โ”€โ”€โ”€โ”€โ”€โ”€โ”€โ”€โ”€โ”€โ”€โ”€โ”€โ”€โ”€
     def _phase6_visualization(
         self,
         rgb: np.ndarray,
@@ -1916,10 +1916,10 @@ class LaneTrajectoryPipeline:
                 return None
             return np.column_stack((cols[valid].astype(int), rows[valid].astype(int)))
 
-        # No BEV visualization — raw image lane detection only
+        # No BEV visualization โ€” raw image lane detection only
         bev_window_vis = None
 
-        # ── Camera overlay: project curves to image ──
+        # โ”€โ”€ Camera overlay: project curves to image โ”€โ”€
         rgb_resized = cv2.resize(rgb, (self.cam_w, self.cam_h))
         lane_overlay = rgb_resized.copy()
 
@@ -1941,7 +1941,7 @@ class LaneTrajectoryPipeline:
             cv2.fillPoly(fill, [poly], (0, 180, 0))
             lane_overlay = cv2.addWeighted(lane_overlay, 0.7, fill, 0.3, 0)
 
-        # ── Mask vis (lightweight: skip resize, use cam resolution) ──
+        # โ”€โ”€ Mask vis (lightweight: skip resize, use cam resolution) โ”€โ”€
         mask_vis = (mask * 255).astype(np.uint8) if self.lightweight_vis else cv2.resize(
             mask.astype(np.uint8) * 255, (rgb.shape[1], rgb.shape[0]), interpolation=cv2.INTER_NEAREST,
         )
@@ -1954,7 +1954,7 @@ class LaneTrajectoryPipeline:
         if right_img_pts is not None:
             right_px_img = np.column_stack((right_img_pts[:, 1], right_img_pts[:, 0]))
 
-        # Separated masks (skip in lightweight — just return full mask)
+        # Separated masks (skip in lightweight โ€” just return full mask)
         if self.lightweight_vis:
             left_mask_vis = mask_vis
             right_mask_vis = mask_vis
@@ -1965,7 +1965,7 @@ class LaneTrajectoryPipeline:
         return bev_window_vis, lane_overlay, mask_vis, left_px_img, right_px_img, left_mask_vis, right_mask_vis
 
     def process(self, rgb: np.ndarray, world=None, vehicle=None) -> TrajectoryOutput:
-        """การจับเส้นแบบ phase: P1 → P2 → P3 → P4 → P5 → P6 → TrajectoryOutput."""
+        """เธเธฒเธฃเธเธฑเธเน€เธชเนเธเนเธเธ phase: P1 โ’ P2 โ’ P3 โ’ P4 โ’ P5 โ’ P6 โ’ TrajectoryOutput."""
         # P1: Lane mask (uses CARLA waypoints if world/vehicle provided, else UNet)
         mask, confidence = self._phase1_lane_mask(rgb, world=world, vehicle=vehicle)
         # P2: Ground projection + quality
@@ -2054,9 +2054,9 @@ class LaneTrajectoryPipeline:
 LaneTracker = LaneTrajectoryPipeline
 
 
-# ═══════════════════════════════════════════════════════════════════════════
+# โ•โ•โ•โ•โ•โ•โ•โ•โ•โ•โ•โ•โ•โ•โ•โ•โ•โ•โ•โ•โ•โ•โ•โ•โ•โ•โ•โ•โ•โ•โ•โ•โ•โ•โ•โ•โ•โ•โ•โ•โ•โ•โ•โ•โ•โ•โ•โ•โ•โ•โ•โ•โ•โ•โ•โ•โ•โ•โ•โ•โ•โ•โ•โ•โ•โ•โ•โ•โ•โ•โ•โ•โ•โ•โ•
 # Standalone visualization helper (for debugging / logging)
-# ═══════════════════════════════════════════════════════════════════════════
+# โ•โ•โ•โ•โ•โ•โ•โ•โ•โ•โ•โ•โ•โ•โ•โ•โ•โ•โ•โ•โ•โ•โ•โ•โ•โ•โ•โ•โ•โ•โ•โ•โ•โ•โ•โ•โ•โ•โ•โ•โ•โ•โ•โ•โ•โ•โ•โ•โ•โ•โ•โ•โ•โ•โ•โ•โ•โ•โ•โ•โ•โ•โ•โ•โ•โ•โ•โ•โ•โ•โ•โ•โ•โ•โ•
 
 def visualize_pipeline(
     rgb: np.ndarray,
@@ -2103,3 +2103,15 @@ def visualize_pipeline(
     buf = buf.reshape(fig.canvas.get_width_height()[::-1] + (3,))
     plt.close(fig)
     return buf
+    return buf
+    plt.tight_layout()
+    if save_path:
+        plt.savefig(save_path, dpi=120, bbox_inches="tight")
+        logger.info("Saved visualization to %s", save_path)
+
+    fig.canvas.draw()
+    buf = np.frombuffer(fig.canvas.tostring_rgb(), dtype=np.uint8)
+    buf = buf.reshape(fig.canvas.get_width_height()[::-1] + (3,))
+    plt.close(fig)
+    return buf
+

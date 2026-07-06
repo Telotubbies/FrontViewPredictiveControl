@@ -123,6 +123,9 @@ class BSplineLaneFitter:
         t[1:] = np.cumsum(np.sqrt(np.diff(x)**2 + np.diff(y)**2))
         t = t / t[-1]  # Normalize to [0, 1]
 
+        # Create knot vector
+        self.num_control_points - self.degree + 1
+
         # Fit B-spline
         try:
             tck, _ = interpolate.splprep([x, y], u=t, k=self.degree, s=0.1)
