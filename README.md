@@ -368,12 +368,12 @@ carla_mpc_classical/
 ├── pipeline.py                # Core pipeline orchestrator
 ├── run_unet_mpc.py            # Headless MPC + U-Net runner
 ├── config.py / config.yaml    # All tunable parameters
-├── carla_io.py                # CARLA client / sensor setup
+├── carla_input_output.py                # CARLA client / sensor setup
 ├── state.py                   # Shared vehicle state dataclass
 │
 ├── perception/                # Perception modules
 │   ├── lane_detector.py       # U-Net lane detector + post-processing
-│   ├── bev_lane_pipeline.py   # BEV warp + sliding-window + poly fit
+│   ├── birds_eye_view_lane_pipeline.py   # BEV warp + sliding-window + poly fit
 │   ├── ego_lane_tracker.py    # Ego-lane Kalman tracker
 │   ├── kalman_lane_tracker.py # General Kalman filter for lanes
 │   ├── lane_trajectory.py     # Reference trajectory builder
@@ -385,7 +385,7 @@ carla_mpc_classical/
 │   ├── lane_mpc.py            # Kinematic Bicycle MPC (CasADi)
 │   └── pure_pursuit.py        # Pure Pursuit fallback controller
 │
-├── alg/
+├── algorithms/
 │   ├── reference.py           # Dynamic lookahead + path resampling
 │   ├── optimized_reference.py # Optimised reference builder
 │   ├── step.py                # Single MPC step orchestration

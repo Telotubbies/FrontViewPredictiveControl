@@ -2,7 +2,7 @@
 import math
 import pytest
 
-from safety.aeb_acc import AEBACC, AEBResult, ACCResult
+from safety.emergency_braking_adaptive_cruise_control import AEBACC, AEBResult, ACCResult
 from bridge.obstacles import Obstacle, ObstacleType
 
 

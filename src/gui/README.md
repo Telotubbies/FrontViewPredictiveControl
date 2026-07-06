@@ -41,7 +41,7 @@ python gui/adas_dashboard.py model/lane_unet_final.pth
 - **PyQt5** (preferred) or **PySide6**
 - **numpy**
 - **pyqtgraph** (optional, for real-time charts): `pip install pyqtgraph`
-- Project modules: `config`, `pipeline`, `carla_io`, `state` (from `carla_mpc_classical`)
+- Project modules: `config`, `pipeline`, `carla_input_output`, `state` (from `carla_mpc_classical`)
 - CARLA Python API (e.g. `../PythonAPI`)
 
 Install Qt and optional chart library:

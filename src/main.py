@@ -33,10 +33,10 @@ from gui.dashboard import Dashboard
 from pipeline import LKAPipeline
 from safety.override import SafetyOverride
 from safety.stuck_recovery import StuckRecovery
-from safety.aeb_acc import AEBACC
+from safety.emergency_braking_adaptive_cruise_control import AEBACC
 from adas.adas_manager import ADASManager
 from bridge.obstacles import get_traffic_obstacles
-from carla_io import get_waypoints, waypoints_to_cte_heading
+from carla_input_output import get_waypoints, waypoints_to_cte_heading
 from telemetry.influxdb_exporter import TelemetryExporter
 from config import (
     TARGET_SPEED_KMH, USE_TRAJECTORY_PIPELINE,

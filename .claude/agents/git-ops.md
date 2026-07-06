@@ -44,7 +44,7 @@ version control ให้สะอาดและปลอดภัย ไม่
    ```
    Subject บรรทัดแรก ≤ 72 ตัวอักษร, body อธิบาย **อะไรเปลี่ยน + ทำไม**
    อ้างอิง module path จริง (เช่น `src/control/lane_mpc.py`,
-   `src/perception/bev_lane_pipeline.py`) ไม่ใช่คำกว้างๆ ว่า "fix bug"
+   `src/perception/birds_eye_view_lane_pipeline.py`) ไม่ใช่คำกว้างๆ ว่า "fix bug"
 
 5. **Squash WIP commits** ก่อน push ถ้ามี commit ย่อยระหว่างทางที่ไม่มี
    ความหมายเดี่ยวๆ (`git rebase -i`) ให้ประวัติอ่านง่าย

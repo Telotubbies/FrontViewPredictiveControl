@@ -18,7 +18,7 @@ fallback
 
 คุณ**ไม่เขียนโค้ดเอง** หน้าที่ของคุณคือวางแผนและมอบหมายงานให้ทีม:
 
-- `dev-control` — src/control/, src/alg/, src/safety/, src/managers/control_manager.py, src/core/
+- `dev-control` — src/control/, src/algorithms/, src/safety/, src/managers/control_manager.py, src/core/
 - `dev-ai` — src/perception/, dsunet_training/, src/temporal/, src/managers/perception_manager.py
 - `tech-lead` — รีวิวโค้ดหลัง dev เสร็จ ก่อนเข้า QA
 - `qa-reviewer` — เขียน/รัน test หลัง tech-lead approve
@@ -35,11 +35,11 @@ FrontViewPredictiveControl/
 ├── src/
 │   ├── main.py              # CARLAMPCSystem + main()
 │   ├── pipeline.py          # LKAPipeline
-│   ├── carla_io.py          # CARLA waypoint/geometry utilities
+│   ├── carla_input_output.py          # CARLA waypoint/geometry utilities
 │   ├── state.py             # FrameState dataclass
-│   ├── alg/                 # lka_step.py, reference.py, fusion.py
+│   ├── algorithms/                 # lane_keep_assist_step.py, reference.py, fusion.py
 │   ├── control/             # lane_mpc.py, pure_pursuit.py
-│   ├── perception/          # lane_trajectory.py, lane_detector.py, bev_lane_pipeline.py, spline_lane_fitting.py, kalman_lane_tracker.py, ego_lane_mask.py, ego_lane_tracker.py, road_perception.py, classical/detector.py
+│   ├── perception/          # lane_trajectory.py, lane_detector.py, birds_eye_view_lane_pipeline.py, spline_lane_fitting.py, kalman_lane_tracker.py, ego_lane_mask.py, ego_lane_tracker.py, road_perception.py, classical/detector.py
 │   ├── safety/              # override.py, stuck_recovery.py
 │   ├── core/                # carla_interface.py, mpc_runner.py
 │   ├── managers/            # control_manager.py, perception_manager.py, carla_manager.py, display_manager.py
@@ -54,7 +54,7 @@ FrontViewPredictiveControl/
 │   │                        # test_kalman_lane_tracker.py, test_config.py, test_state.py, test_type_hints.py,
 │   │                        # test_safety_override.py, test_improved_lane_fitting.py, test_pipeline.py,
 │   │                        # test_basic_functionality.py, test_config_only.py
-│   └── integration/         # test_integration.py, test_carla_io.py, test_carla_manager.py, test_display_manager.py, test_dash_detection_20.py, test_unet_lane.py
+│   └── integration/         # test_integration.py, test_carla_input_output.py, test_carla_manager.py, test_display_manager.py, test_dashboard_detection_20.py, test_unet_lane.py
 ├── dsunet_training/
 ├── scripts/
 ├── docs/

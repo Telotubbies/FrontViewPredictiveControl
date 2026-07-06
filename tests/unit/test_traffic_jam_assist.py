@@ -1,4 +1,4 @@
-"""Tests for Traffic Jam Assist + Stop & Go (safety/tja_stop_go.py)."""
+"""Tests for Traffic Jam Assist + Stop & Go (safety/traffic_jam_assist_stop_go.py)."""
 import math
 import sys
 from pathlib import Path
@@ -11,7 +11,7 @@ for _p in (SRC, ROOT):
     if str(_p) not in sys.path:
         sys.path.insert(0, str(_p))
 
-from safety.tja_stop_go import (
+from safety.traffic_jam_assist_stop_go import (
     StopAndGo,
     TJAConfig,
     TJAState,

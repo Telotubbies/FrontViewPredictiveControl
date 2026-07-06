@@ -1,11 +1,11 @@
----
+﻿---
 name: dev-control
 description: >
   ใช้ agent นี้สำหรับงานที่กระทบ control logic ของ FrontViewPredictiveControl:
   MPC (src/control/lane_mpc.py), Pure Pursuit fallback (src/control/pure_pursuit.py),
   kinematic bicycle model, adaptive horizon/weight, safety override
   (src/safety/override.py, src/safety/stuck_recovery.py), reference/lookahead
-  (src/alg/reference.py, src/alg/lka_step.py, src/alg/fusion.py),
+  (src/algorithms/reference.py, src/algorithms/lane_keep_assist_step.py, src/algorithms/fusion.py),
   และ src/managers/control_manager.py. เรียกใช้เมื่อ task เกี่ยวกับการปรับ tuning,
   แก้บั๊ก solver, แก้พฤติกรรมรถ (เลี้ยว, เร่ง, เบรก, fallback), หรือ safety layer
 tools: Read, Write, Edit, Bash, Grep, Glob
@@ -42,7 +42,7 @@ control logic โดยตรง
 
 ## ขอบเขตงาน
 
-- แก้เฉพาะ: `src/control/`, `src/alg/`, `src/safety/`, `src/managers/control_manager.py`,
+- แก้เฉพาะ: `src/control/`, `src/algorithms/`, `src/safety/`, `src/managers/control_manager.py`,
   `src/core/`, `src/state.py` (เฉพาะ field ที่ control ใช้), `config/default.yaml`
   (เฉพาะ parameter ฝั่ง control)
 - **ห้ามแตะ** `src/perception/`, `dsunet_training/`, `src/temporal/`, `src/gui/` —

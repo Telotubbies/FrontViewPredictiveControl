@@ -1,4 +1,4 @@
-"""Production tests for reference path generation (alg/reference.py)."""
+"""Production tests for reference path generation (algorithms/reference.py)."""
 import sys
 from pathlib import Path
 
@@ -11,7 +11,7 @@ for _p in (SRC, ROOT):
     if str(_p) not in sys.path:
         sys.path.insert(0, str(_p))
 
-from alg.reference import (
+from algorithms.reference import (
     dynamic_lookahead_m,
     smooth_path_lat,
     resample_path,

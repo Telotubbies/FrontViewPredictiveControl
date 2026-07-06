@@ -1,4 +1,4 @@
-from ..qt_compat import (
+from ..qt_compatibility import (
     QFrame,
     QVBoxLayout,
     QHBoxLayout,

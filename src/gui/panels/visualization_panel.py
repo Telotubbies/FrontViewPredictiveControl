@@ -1,5 +1,5 @@
 import numpy as np
-from ..qt_compat import QFrame, QVBoxLayout, QHBoxLayout, QLabel, QImage, QPixmap, Qt
+from ..qt_compatibility import QFrame, QVBoxLayout, QHBoxLayout, QLabel, QImage, QPixmap, Qt
 from ..models import FrameData
 
 

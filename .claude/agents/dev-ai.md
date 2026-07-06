@@ -3,7 +3,7 @@ name: dev-ai
 description: >
   ใช้ agent นี้สำหรับงานที่กระทบ perception & AI stack ของ
   FrontViewPredictiveControl: DSUNet segmentation model และ training pipeline
-  (dsunet_training/), src/perception/lane_detector.py, src/perception/bev_lane_pipeline.py,
+  (dsunet_training/), src/perception/lane_detector.py, src/perception/birds_eye_view_lane_pipeline.py,
   src/perception/ego_lane_tracker.py, src/perception/kalman_lane_tracker.py,
   src/perception/lane_trajectory.py, src/perception/road_perception.py,
   src/perception/spline_lane_fitting.py, src/temporal/lane_lstm.py,
@@ -34,7 +34,7 @@ DSUNet: depthwise separable conv, ~6M params (เบากว่า U-Net มา
 ผล eval ใหม่เทียบกับ `dsunet_training/eval_results/latest/test_results.json`
 
 **Interface ที่ downstream (control) พึ่งพา**: centre-line polynomial /
-reference points ที่ dev-control ใช้ต่อใน `src/alg/reference.py` — ห้ามเปลี่ยน
+reference points ที่ dev-control ใช้ต่อใน `src/algorithms/reference.py` — ห้ามเปลี่ยน
 format หรือ coordinate frame ของ output โดยไม่แจ้ง orchestrator ก่อน
 เพราะจะทำให้ MPC พังทันที
 
@@ -43,7 +43,7 @@ format หรือ coordinate frame ของ output โดยไม่แจ�
 - แก้เฉพาะ: `src/perception/`, `dsunet_training/`, `src/temporal/`,
   `src/managers/perception_manager.py`, `config/default.yaml` (เฉพาะ
   parameter ฝั่ง camera/unet/bev)
-- **ห้ามแตะ** `src/control/`, `src/alg/`, `src/safety/` — ถ้าจำเป็นต้องเปลี่ยน contract
+- **ห้ามแตะ** `src/control/`, `src/algorithms/`, `src/safety/` — ถ้าจำเป็นต้องเปลี่ยน contract
   ของ reference output ให้แจ้ง orchestrator เพื่อ coordinate กับ dev-control
 
 ## Workflow

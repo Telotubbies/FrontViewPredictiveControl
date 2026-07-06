@@ -6,7 +6,7 @@ from typing import TYPE_CHECKING
 
 import numpy as np
 
-from .qt_compat import QObject, pyqtSignal
+from .qt_compatibility import QObject, pyqtSignal
 from .models import FrameData
 
 if TYPE_CHECKING:
@@ -85,7 +85,7 @@ class CarlaWorker(QObject):
 
             from config import CAM_W, CAM_H, CAM_FOV_DEG
             from pipeline import LKAPipeline
-            from carla_io import get_waypoints, waypoints_to_cte_heading, cleanup
+            from carla_input_output import get_waypoints, waypoints_to_cte_heading, cleanup
             import torch
 
             device = torch.device("cuda" if torch.cuda.is_available() else "cpu")

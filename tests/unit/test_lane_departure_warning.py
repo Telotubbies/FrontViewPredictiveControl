@@ -1,4 +1,4 @@
-"""Comprehensive tests for Lane Departure Warning + LKA Pro (safety/ldw.py)."""
+"""Comprehensive tests for Lane Departure Warning + LKA Pro (safety/lane_departure_warning.py)."""
 import math
 import sys
 from pathlib import Path
@@ -11,7 +11,7 @@ for _p in (SRC, ROOT):
     if str(_p) not in sys.path:
         sys.path.insert(0, str(_p))
 
-from safety.ldw import (
+from safety.lane_departure_warning import (
     LDWConfig,
     LDWState,
     LaneDepartureWarning,

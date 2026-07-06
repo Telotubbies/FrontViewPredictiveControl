@@ -1,4 +1,4 @@
-from ..qt_compat import QFrame, QVBoxLayout, QLabel, QTextEdit
+from ..qt_compatibility import QFrame, QVBoxLayout, QLabel, QTextEdit
 
 
 class LoggingPanel(QFrame):

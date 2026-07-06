@@ -1,4 +1,4 @@
-# Autonomous Vehicle Prototype Design Documents
+﻿# Autonomous Vehicle Prototype Design Documents
 
 > **Design Philosophy**: Tesla-like prototype — **NO reinforcement learning**
 > All decisions use classical control, supervised learning, rule-based logic, and optimization.
@@ -78,14 +78,14 @@
 | Design Module | Existing Code |
 |---------------|---------------|
 | Vision Perception | `src/perception/` (UNet, Kalman tracker, classical) |
-| Sensor Fusion | `src/alg/fusion.py` |
-| Path Planning | `src/alg/reference.py`, `src/alg/lka_step.py` |
+| Sensor Fusion | `src/algorithms/fusion.py` |
+| Path Planning | `src/algorithms/reference.py`, `src/algorithms/lane_keep_assist_step.py` |
 | Vehicle Control | `src/control/lane_mpc.py`, `src/control/pure_pursuit.py` |
 | Safety | `src/safety/` (override, AEB, LDW, BSW, TJA, stuck recovery) |
 | HMI | `src/gui/dashboard.py` (Pygame) |
 | Telemetry | `src/telemetry/influxdb_exporter.py` + Grafana |
 | ADAS Manager | `src/adas/adas_manager.py` (9 features integrated) |
-| Localization | `src/carla_io.py` (waypoint system) |
+| Localization | `src/carla_input_output.py` (waypoint system) |
 | Testing | `tests/unit/` (625 tests), `tests/integration/` |
 
 ## Compute Targets

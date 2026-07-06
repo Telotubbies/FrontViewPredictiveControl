@@ -1,4 +1,4 @@
-"""Unit tests for carla_io.waypoints_to_cte_heading with mocked waypoints."""
+"""Unit tests for carla_input_output.waypoints_to_cte_heading with mocked waypoints."""
 import math
 import sys
 from pathlib import Path
@@ -11,7 +11,7 @@ ROOT = Path(__file__).resolve().parents[1]
 if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
 
-from carla_io import waypoints_to_cte_heading
+from carla_input_output import waypoints_to_cte_heading
 
 
 def _make_transform(x: float, y: float, yaw_deg: float):

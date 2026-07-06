@@ -124,4 +124,4 @@ carla_mpc_classical/gui/
 - PyQt5 or PySide6
 - numpy (for FrameData and pipeline)
 - pyqtgraph (optional; for DiagnosticsPanel charts)
-- Project: `carla_mpc_classical` (config, pipeline, carla_io, state) and CARLA PythonAPI (carla)
+- Project: `carla_mpc_classical` (config, pipeline, carla_input_output, state) and CARLA PythonAPI (carla)

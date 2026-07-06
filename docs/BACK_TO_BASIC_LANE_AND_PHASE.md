@@ -100,7 +100,7 @@ python scripts/run_phase1_only.py --image frame.png --out-dir out_p1   # บั�
   2. หา CTE, heading, curvature ที่จุด ego (หรือจุดใกล้ที่สุดบน path)
   3. (Optional) Kalman / EMA เพื่อลด jitter
 - **QC:** clip ค่าให้อยู่ในขอบเขต (CTE, heading, curvature)
-- **Code ปัจจุบัน:** `lane_trajectory` → `mpc_reference_output`, `alg/reference.py`, `alg/step.py` (state EMA)
+- **Code ปัจจุบัน:** `lane_trajectory` → `mpc_reference_output`, `algorithms/reference.py`, `algorithms/step.py` (state EMA)
 
 **ตรวจว่า P4 ผ่าน:** ค่า cte_m, heading_rad, curvature ตรงกับที่เห็นในภาพ (รถอยู่ซ้ายของ center = cte < 0 ฯลฯ)
 
@@ -120,7 +120,7 @@ python scripts/run_phase1_only.py --image frame.png --out-dir out_p1   # บั�
   3. ถ้ามี waypoint + confidence สูง → WP+UNET_CENTER (ใช้ WP เป็นหลัก + UNet ช่วยจัดกลาง)
   4. Clip และส่ง state สุดท้ายเข้า reference path + MPC
 - **QC:** FUSION_CONF_LOW/HIGH; ไม่มี state ที่เป็น NaN/Inf
-- **Code ปัจจุบัน:** `alg/fusion.apply_fusion`, `config.py` (FUSION_CONF_*, WP_CTE_WEIGHT, UNET_CENTER_WEIGHT)
+- **Code ปัจจุบัน:** `algorithms/fusion.apply_fusion`, `config.py` (FUSION_CONF_*, WP_CTE_WEIGHT, UNET_CENTER_WEIGHT)
 
 **ตรวจว่า P5 ผ่าน:** mode เปลี่ยนตามสถานะ (เห็นเลนชัด → WP+UNET_CENTER; ไม่เห็น → WP_PRIMARY)
 
@@ -151,7 +151,7 @@ python scripts/run_phase1_only.py --image frame.png --out-dir out_p1   # บั�
    - รับ wp_state, lane state, confidence → ส่งออก mode และ fused state  
    - ตรวจว่า mode ตรงกับที่คาด (ลองบังกล้อง = WP_PRIMARY, เปิดกล้องเห็นเลน = WP+UNET_CENTER)
 
-จากนั้นค่อยรวมกลับเข้า pipeline เดิม (เช่น `LaneTrajectoryPipeline.process` และ `alg/step`) โดยให้แต่ละบล็อกเรียกผลจาก phase ก่อนหน้าเท่านั้น
+จากนั้นค่อยรวมกลับเข้า pipeline เดิม (เช่น `LaneTrajectoryPipeline.process` และ `algorithms/step`) โดยให้แต่ละบล็อกเรียกผลจาก phase ก่อนหน้าเท่านั้น
 
 ---
 
@@ -216,4 +216,4 @@ Pipeline ส่งค่า **phase_p2_case** และ **phase_p3_case** ออ
 - **P4:** ผ่านเมื่อ cte_m, heading_rad, curvature เป็น finite และอยู่ในช่วงที่กำหนด
 - **P5:** ผ่านเมื่อ `mode` ไม่ว่าง (fusion ตั้ง mode ได้)
 
-สคริปต์ `scripts/run_test_p1_p5.py` รองรับการเก็บ `phase_p2_case` / `phase_p3_case` ต่อ frame และรายงานสรุปแยกตาม case (จำนวนครั้งที่เกิดแต่ละ case และอัตราผ่านใน case นั้น)
+สคริปต์ `scripts/run_test_phase1_phase5.py` รองรับการเก็บ `phase_p2_case` / `phase_p3_case` ต่อ frame และรายงานสรุปแยกตาม case (จำนวนครั้งที่เกิดแต่ละ case และอัตราผ่านใน case นั้น)

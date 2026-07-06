@@ -74,7 +74,7 @@ class FrameState:
     tja_state: str = "inactive"         # inactive | active | stopped | creeping | no_lead
     tja_active: bool = False
     stop_and_go_stopped: bool = False
-    # AEB + ACC (already in safety/aeb_acc.py, expose status here)
+    # AEB + ACC (already in safety/emergency_braking_adaptive_cruise_control.py, expose status here)
     aeb_active: bool = False
     aeb_ttc: float = -1.0
     aeb_warning_level: str = "none"     # none | caution | warning | critical

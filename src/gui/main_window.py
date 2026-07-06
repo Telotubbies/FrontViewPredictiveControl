@@ -3,7 +3,7 @@ import time
 from pathlib import Path
 from typing import Optional
 
-from .qt_compat import (
+from .qt_compatibility import (
     QMainWindow,
     QWidget,
     QVBoxLayout,

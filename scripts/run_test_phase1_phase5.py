@@ -52,9 +52,9 @@ except ImportError:
 
 import torch
 
-from carla_io import get_waypoints, waypoints_to_cte_heading
+from carla_input_output import get_waypoints, waypoints_to_cte_heading
 from config import CAM_W, CAM_H, USE_TRAJECTORY_PIPELINE
-from alg import LKAStep
+from algorithms import LKAStep
 
 
 def run_carla(

@@ -1,4 +1,4 @@
-"""Production tests for Blind Spot Warning + Lane Change Assist (safety/bsw_lca.py)."""
+"""Production tests for Blind Spot Warning + Lane Change Assist (safety/blind_spot_warning_lane_change_assist.py)."""
 import math
 import sys
 from pathlib import Path
@@ -12,7 +12,7 @@ for _p in (SRC, ROOT):
         sys.path.insert(0, str(_p))
 
 from bridge.obstacles import Obstacle, ObstacleType
-from safety.bsw_lca import (
+from safety.blind_spot_warning_lane_change_assist import (
     BSWAlert,
     BSWConfig,
     BlindSpotWarning,

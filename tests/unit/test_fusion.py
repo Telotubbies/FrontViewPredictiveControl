@@ -1,8 +1,8 @@
-"""Production tests for sensor fusion logic (alg/fusion.py)."""
+"""Production tests for sensor fusion logic (algorithms/fusion.py)."""
 import pytest
 import numpy as np
 
-from alg.fusion import apply_fusion
+from algorithms.fusion import apply_fusion
 import config
 
 

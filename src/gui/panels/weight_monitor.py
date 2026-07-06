@@ -1,6 +1,6 @@
 from typing import Dict
 
-from ..qt_compat import QFrame, QGridLayout, QLabel
+from ..qt_compatibility import QFrame, QGridLayout, QLabel
 
 
 class AdaptiveWeightMonitor(QFrame):

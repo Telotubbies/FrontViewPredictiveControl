@@ -30,7 +30,7 @@
 |------------|-----------|----------|
 | **Classical** (edge + sliding window) | `./scripts/run.sh classical` หรือ `python scripts/run_classical_mpc.py --town Town04` | ไม่ใช้ ML, ไม่ต้องมี model |
 | **UNet** (โมเดลที่ train มา) | `./run_adas.sh --no-carla` (จาก root) หรือ `./scripts/run.sh unet` | ต้องมี model/lane_unet_final.pth; config จาก config.yaml |
-| **เทส P1–P5** (phase pass rate) | `python scripts/run_test_p1_p5.py --town Town04 --frames 200` | ต้องเปิด CARLA ก่อน; รายงาน P1..P5 pass % |
+| **เทส P1–P5** (phase pass rate) | `python scripts/run_test_phase1_phase5.py --town Town04 --frames 200` | ต้องเปิด CARLA ก่อน; รายงาน P1..P5 pass % |
 
 ---
 
@@ -42,7 +42,7 @@ carla_mpc_classical/
 ├── config.yaml              # ค่าคงที่รวม (แก้ที่นี่); config.py โหลดจากไฟล์นี้
 ├── config.py                # โหลด config.yaml + PROJECT_ROOT, UXColors
 ├── state.py
-├── carla_io.py
+├── carla_input_output.py
 ├── pipeline.py              # LKAPipeline (perception → MPC → safety)
 ├── run_unet_mpc.py          # Entry UNet + Dashboard
 ├── run_adas_full.py
@@ -87,7 +87,7 @@ carla_mpc_classical/
 │
 ├── tests/                               # Unit tests (pytest; ไม่ใช้ CARLA server/GPU)
 │   ├── test_reference.py                # alg.reference
-│   ├── test_carla_io.py                 # carla_io.waypoints_to_cte_heading
+│   ├── test_carla_input_output.py     # carla_input_output.waypoints_to_cte_heading
 │   ├── test_lane_mpc.py                 # control.lane_mpc
 │   └── test_safety_override.py          # safety.safety_override
 │

@@ -6,7 +6,7 @@ try:
 except ImportError:
     HAS_PYQTGRAPH = False
 
-from ..qt_compat import QFrame, QVBoxLayout, QLabel
+from ..qt_compatibility import QFrame, QVBoxLayout, QLabel
 from ..models import FrameData
 
 

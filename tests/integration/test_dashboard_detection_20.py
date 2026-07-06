@@ -15,7 +15,7 @@ sys.path.insert(0, str(Path(__file__).parent))
 
 import carla
 from perception.lane_detector import LaneDetector
-from perception.bev_lane_pipeline import BEVLanePipeline
+from perception.birds_eye_view_lane_pipeline import BEVLanePipeline
 
 MODEL_PATH = Path(__file__).parent / "model" / "lane_unet_final.pth"
 OUTPUT_DIR = Path(__file__).parent / "test_dash_results"

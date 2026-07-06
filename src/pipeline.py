@@ -20,7 +20,7 @@ from config import (
     USE_TRAJECTORY_PIPELINE,
     USE_CLASSICAL_DETECTOR,
 )
-from alg.fusion import apply_fusion
+from algorithms.fusion import apply_fusion
 from state import FrameState
 from temporal.lane_lstm import LaneTemporalSmoother
 from control.lane_mpc import LaneMPC, MPCConfig

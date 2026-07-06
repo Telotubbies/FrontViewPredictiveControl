@@ -17,10 +17,10 @@ FrontViewPredictiveControl/
 ├── src/                     # โค้ด production ทั้งหมด
 │   ├── main.py              # CARLAMPCSystem + main()
 │   ├── pipeline.py          # LKAPipeline: Perception → Fusion → Reference → MPC → Safety
-│   ├── carla_io.py          # CARLA waypoint/geometry utilities
+│   ├── carla_input_output.py          # CARLA waypoint/geometry utilities
 │   ├── state.py             # FrameState dataclass (shared state)
-│   ├── alg/                 # algorithm layer
-│   │   ├── lka_step.py      # LKAStep — main step orchestrator
+│   ├── algorithms/                 # algorithm layer
+│   │   ├── lane_keep_assist_step.py      # LKAStep — main step orchestrator
 │   │   ├── reference.py     # reference path generation
 │   │   └── fusion.py        # WP + UNet fusion
 │   ├── control/             # control logic
@@ -29,7 +29,7 @@ FrontViewPredictiveControl/
 │   ├── perception/          # lane detection & AI
 │   │   ├── lane_trajectory.py
 │   │   ├── lane_detector.py
-│   │   ├── bev_lane_pipeline.py
+│   │   ├── birds_eye_view_lane_pipeline.py
 │   │   ├── spline_lane_fitting.py
 │   │   ├── kalman_lane_tracker.py
 │   │   ├── ego_lane_mask.py
@@ -86,9 +86,9 @@ FrontViewPredictiveControl/
 | ใช้ `snake_case.py` | `lane_mpc.py` | `LaneMPC.py`, `laneMpc.py` | PEP 8 |
 | ชื่อบอก **หน้าที่** ไม่ใช่ implementation detail | `spline_lane_fitting.py` | `improved_lane_fitting.py` | "improved" subjective, "spline" บอกวิธีการ |
 | ห้ามมี codename/project name ในชื่อ | `dashboard.py` | `apollo_dashboard.py` | "apollo" เป็น codename ไม่บอกหน้าที่ |
-| ห้ามมี implementation detail ในชื่อ | `bev_lane_pipeline.py` | `gpu_bev_transform.py` | "gpu" เป็น implementation detail |
+| ห้ามมี implementation detail ในชื่อ | `birds_eye_view_lane_pipeline.py` | `gpu_bev_transform.py` | "gpu" เป็น implementation detail |
 | ห้าม redundant prefix ซ้ำกับชื่อโฟลเดอร์ | `safety/override.py` | `safety/safety_override.py` | "safety_" ซ้ำกับโฟลเดอร์ |
-| ห้ามชื่อกว้างเกินไป | `alg/lka_step.py` | `alg/step.py` | "step" ไม่บอกว่า step อะไร |
+| ห้ามชื่อกว้างเกินไป | `algorithms/lane_keep_assist_step.py` | `algorithms/step.py` | "step" ไม่บอกว่า step อะไร |
 | ไฟล์ test ตั้งชื่อตรงกับโมดูล | `test_override.py` สำหรับ `safety/override.py` | `test_safety_override.py` | ลด redundant prefix |
 
 ---
@@ -145,7 +145,7 @@ from config import *  # อนุญาต (เพราะ config เป็น 
 
 | ฝั่ง | ห้าม import จาก |
 |------|-----------------|
-| `control/`, `alg/`, `safety/`, `core/` | `gui/`, `pygame`, `PyQt5` |
+| `control/`, `algorithms/`, `safety/`, `core/` | `gui/`, `pygame`, `PyQt5` |
 | `perception/` | `control/` โดยตรง (ต้องผ่าน `managers/` หรือ `state.py`) |
 | `safety/` | `control/` (ต้องรับค่าผ่าน parameter) |
 
@@ -286,7 +286,7 @@ tests/
 │   └── test_spline_lane_fitting.py
 └── integration/             # integration test (CARLA required)
     ├── test_integration.py
-    ├── test_carla_io.py
+    ├── test_carla_input_output.py
     └── test_carla_manager.py
 ```
 
@@ -323,7 +323,7 @@ tests/
 | `control` | `src/control/` |
 | `perception` | `src/perception/` |
 | `safety` | `src/safety/` |
-| `alg` | `src/alg/` |
+| `alg` | `src/algorithms/` |
 | `core` | `src/core/`, `src/main.py`, `src/pipeline.py` |
 | `gui` | `src/gui/` |
 | `config` | `config/` |
@@ -391,7 +391,7 @@ GitHub Actions (`.github/workflows/ci.yml`) รันทุก push/PR:
 |------|--------|
 | `agent/README.md` | บทบาท subagent 6 ตัว |
 | `agent/orchestrator.md` | orchestrator: วางแผน + มอบหมายงาน |
-| `agent/dev-control.md` | dev-control: control/ alg/ safety/ core/ |
+| `agent/dev-control.md` | dev-control: control/ algorithms/ safety/ core/ |
 | `agent/dev-ai.md` | dev-ai: perception/ dsunet_training/ temporal/ |
 | `agent/tech-lead.md` | tech-lead: architecture review |
 | `agent/qa-reviewer.md` | qa-reviewer: test + safety edge case |

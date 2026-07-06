@@ -20,11 +20,11 @@ if _CARLA_API.exists() and str(_CARLA_API) not in sys.path:
 
 # Import from gui package (works when run as script or as -m carla_mpc_classical.gui.adas_dashboard)
 try:
-    from .qt_compat import QApplication, QFont
+    from .qt_compatibility import QApplication, QFont
     from .theme import FONT_FAMILY
     from .main_window import MainWindow
 except ImportError:
-    from gui.qt_compat import QApplication, QFont
+    from gui.qt_compatibility import QApplication, QFont
     from gui.theme import FONT_FAMILY
     from gui.main_window import MainWindow
 

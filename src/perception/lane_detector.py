@@ -20,7 +20,7 @@ from config import (
     UNET_INPUT_H_INFER,
 )
 from utils.device_utils import get_device
-from perception.bev_lane_pipeline import BEVLanePipeline
+from perception.birds_eye_view_lane_pipeline import BEVLanePipeline
 
 logger = logging.getLogger(__name__)
 
