@@ -28,6 +28,35 @@ checkpoints/
 debug_output/
 debug_output_*/
 
+# Windows ghost files (truncated names from incomplete writes)
+_
+_fix
+_*.py
+src/te
+src/telemetry/in
+src/telemetry/influx
+src/telemetry/influxdb
+src/telemetry/influxdb_export
+src/telemetry/influxdb_exporter
+te
+telemetry/README
+telemetry/docker
+telemetry/docker-compose
+telemetry/graf
+telemetry/grafana/pro
+telemetry/grafana/provision
+telemetry/grafana/provisioning/d
+telemetry/grafana/provisioning/dash
+telemetry/grafana/provisioning/dashboards/adas
+telemetry/grafana/provisioning/dashboards/adas_dashboard
+telemetry/grafana/provisioning/dashboards/d
+telemetry/grafana/provisioning/dashboards/dash
+telemetry/grafana/provisioning/dashboards/dashboards
+telemetry/grafana/provisioning/datas
+telemetry/grafana/provisioning/datasources/in
+telemetry/grafana/provisioning/datasources/influx
+telemetry/grafana/provisioning/datasources/influxdb
+
 # Test outputs and debug artifacts
 tests/output/
 test_dash_results/
