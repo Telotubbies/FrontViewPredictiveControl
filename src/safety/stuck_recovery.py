@@ -86,7 +86,12 @@ class StuckRecovery:
         self._counter += 1
 
         if self._phase == "safe_stop":
-            # Full brake, no throttle — give up after exhausting recovery attempts
+            if self._counter > 300:  # 5 seconds at 60fps
+                self._phase = "idle"
+                self._counter = 0
+                self._recovery_count = 0
+                logger.info("SAFE_STOP timeout - returning to idle")
+                return None
             return 0.0, 0.0, 1.0, False
 
         if self._phase == "brake":

@@ -34,6 +34,7 @@ from pipeline import LKAPipeline
 from safety.override import SafetyOverride
 from safety.stuck_recovery import StuckRecovery
 from safety.aeb_acc import AEBACC
+from adas.adas_manager import ADASManager
 from bridge.obstacles import get_traffic_obstacles
 from carla_io import get_waypoints, waypoints_to_cte_heading
 from config import (
@@ -64,6 +65,7 @@ class CARLAMPCSystem:
         self.safety: Optional[SafetyOverride] = None
         self.stuck_recovery: Optional[StuckRecovery] = None
         self.aeb_acc: Optional[AEBACC] = None
+        self.adas: Optional[ADASManager] = None
 
         # Control state (persisted between frames for smoothing)
         self._prev_steer = 0.0
@@ -119,8 +121,9 @@ class CARLAMPCSystem:
             })
             self.stuck_recovery = StuckRecovery()
             self.aeb_acc = AEBACC()
+            self.adas = ADASManager(aeb_acc=self.aeb_acc)
 
-            logger.info("System initialization completed")
+            logger.info("System initialization completed — Full ADAS suite active")
             return True
 
         except Exception as e:
@@ -209,9 +212,8 @@ class CARLAMPCSystem:
                     prev_throttle=self._prev_throttle,
                 )
 
-                # ── AEB + ACC ──────────────────────────────────────────────
-                aeb_brake_override = 0.0
-                acc_target_speed = self.target_speed_kmh / 3.6
+                # ── Full ADAS Suite ────────────────────────────────────────
+                # AEB + ACC + LDW + LKA Pro + BSW + LCA + TSR + TJA + Stop&Go
                 try:
                     obstacles = get_traffic_obstacles(
                         self.carla.world,
@@ -220,35 +222,34 @@ class CARLAMPCSystem:
                     ego_loc = vehicle_transform.location
                     ego_rot = vehicle_transform.rotation
                     ego_heading = math.radians(ego_rot.yaw)
+                    timestamp = time.time()
 
-                    # ACC: adjust target speed
-                    acc_result = self.aeb_acc.check_acc(
-                        obstacles,
-                        ego_x=ego_loc.x, ego_y=ego_loc.y,
+                    adas_out = self.adas.update(
+                        obstacles=obstacles,
+                        ego_x=ego_loc.x,
+                        ego_y=ego_loc.y,
                         ego_heading=ego_heading,
                         ego_speed=current_speed_ms,
-                        nominal_target_ms=self.target_speed_kmh / 3.6,
+                        cte=frame_state.cte_m if frame_state else 0.0,
+                        heading_err=frame_state.heading_rad if frame_state else 0.0,
+                        curvature=frame_state.curvature if frame_state else 0.0,
+                        timestamp=timestamp,
+                        carla_world=self.carla.world,
+                        vehicle_transform=vehicle_transform,
+                        nominal_target_speed_ms=self.target_speed_kmh / 3.6,
                     )
-                    if acc_result.active and acc_result.target_speed_ms < acc_target_speed:
-                        acc_target_speed = acc_result.target_speed_ms
 
-                    # AEB: emergency brake override
-                    aeb_result = self.aeb_acc.check_aeb(
-                        obstacles,
-                        ego_x=ego_loc.x, ego_y=ego_loc.y,
-                        ego_heading=ego_heading,
-                        ego_speed=current_speed_ms,
+                    # Apply ADAS overrides to MPC output
+                    steer, throttle, brake, _ = self.adas.apply_to_control(
+                        steer, throttle, brake, adas_out
                     )
-                    if aeb_result.active:
-                        aeb_brake_override = aeb_result.brake_override
+
+                    if adas_out.active_features:
+                        logger.debug(
+                            "ADAS active: %s", ", ".join(adas_out.active_features)
+                        )
                 except Exception as e:
-                    logger.debug(f"AEB/ACC check skipped: {e}")
-
-                # Apply AEB override (highest priority)
-                if aeb_brake_override > brake:
-                    brake = aeb_brake_override
-                    throttle = 0.0
-                    logger.warning("AEB active: brake=%.2f", brake)
+                    logger.debug(f"ADAS update skipped: {e}")
 
                 # Apply control to vehicle
                 carla_control = self.carla.get_vehicle_control()
@@ -296,12 +297,16 @@ class CARLAMPCSystem:
                 if self.frame_count % 100 == 0:
                     avg_loop = np.mean(self._loop_times[-100:]) if self._loop_times else 0.0
                     fps = 1.0 / avg_loop if avg_loop > 0 else 0.0
-                    aeb_status = self.aeb_acc.get_status()
+                    adas_status = self.adas.get_status() if self.adas else {}
+                    aeb_active = adas_status.get("aeb", {}).get("aeb_active", False)
+                    acc_active = adas_status.get("aeb", {}).get("acc_active", False)
+                    tja_state = adas_status.get("tja", {}).get("state", "inactive")
                     logger.info(
-                        "Performance: FPS=%.1f, loop=%.1fms, AEB=%s, ACC=%s",
+                        "Performance: FPS=%.1f, loop=%.1fms | AEB=%s ACC=%s TJA=%s",
                         fps, avg_loop * 1000,
-                        "ACTIVE" if aeb_status['aeb_active'] else "idle",
-                        "ACTIVE" if aeb_status['acc_active'] else "idle",
+                        "ACTIVE" if aeb_active else "idle",
+                        "ACTIVE" if acc_active else "idle",
+                        tja_state,
                     )
 
             return 0

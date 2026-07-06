@@ -1,0 +1,531 @@
+"""Tests for Traffic Jam Assist + Stop & Go (safety/tja_stop_go.py)."""
+import math
+import sys
+from pathlib import Path
+
+import pytest
+
+ROOT = Path(__file__).resolve().parents[2]
+SRC = ROOT / "src"
+for _p in (SRC, ROOT):
+    if str(_p) not in sys.path:
+        sys.path.insert(0, str(_p))
+
+from safety.tja_stop_go import (
+    StopAndGo,
+    TJAConfig,
+    TJAState,
+    TrafficJamAssist,
+)
+
+
+# ── Helpers ───────────────────────────────────────────────────────────────────
+
+
+def make_test_config() -> TJAConfig:
+    """Config with short timings for fast testing."""
+    return TJAConfig(
+        activate_speed_ms=8.33,
+        deactivate_speed_ms=12.0,
+        min_follow_distance_m=3.0,
+        time_gap_s=1.2,
+        stop_hold_time_s=2.0,   # short for testing
+        creep_speed_ms=1.0,
+        stop_brake=0.3,
+        creep_throttle=0.15,
+    )
+
+
+# ── TJAConfig ─────────────────────────────────────────────────────────────────
+
+
+class TestTJAConfig:
+    """Test TJAConfig dataclass defaults."""
+
+    def test_defaults(self):
+        cfg = TJAConfig()
+        assert cfg.activate_speed_ms == pytest.approx(8.33)
+        assert cfg.deactivate_speed_ms == pytest.approx(12.0)
+        assert cfg.min_follow_distance_m == pytest.approx(3.0)
+        assert cfg.time_gap_s == pytest.approx(1.2)
+        assert cfg.stop_hold_time_s == pytest.approx(10.0)
+        assert cfg.creep_speed_ms == pytest.approx(1.0)
+        assert cfg.stop_brake == pytest.approx(0.3)
+        assert cfg.creep_throttle == pytest.approx(0.15)
+
+    def test_custom_values(self):
+        cfg = TJAConfig(activate_speed_ms=5.0, stop_hold_time_s=2.0)
+        assert cfg.activate_speed_ms == pytest.approx(5.0)
+        assert cfg.stop_hold_time_s == pytest.approx(2.0)
+
+
+# ── TJAState ──────────────────────────────────────────────────────────────────
+
+
+class TestTJAState:
+    """Test TJAState IntEnum values."""
+
+    def test_state_values(self):
+        assert TJAState.INACTIVE == 0
+        assert TJAState.ACTIVE == 1
+        assert TJAState.STOPPED == 2
+        assert TJAState.CREEPING == 3
+        assert TJAState.NO_LEAD == 4
+
+    def test_state_is_intenum(self):
+        assert int(TJAState.INACTIVE) == 0
+        assert int(TJAState.ACTIVE) == 1
+
+
+# ── TrafficJamAssist — constructor / reset ────────────────────────────────────
+
+
+class TestTJAInit:
+    """Test TrafficJamAssist constructor and reset."""
+
+    def test_initial_state_is_inactive(self):
+        tja = TrafficJamAssist()
+        assert tja._state == TJAState.INACTIVE
+
+    def test_default_config(self):
+        tja = TrafficJamAssist()
+        assert isinstance(tja.config, TJAConfig)
+        assert tja.config.activate_speed_ms == pytest.approx(8.33)
+
+    def test_custom_config(self):
+        cfg = make_test_config()
+        tja = TrafficJamAssist(cfg)
+        assert tja.config.stop_hold_time_s == pytest.approx(2.0)
+
+    def test_reset(self):
+        tja = TrafficJamAssist(make_test_config())
+        # Force into ACTIVE
+        tja._state = TJAState.STOPPED
+        tja._state_enter_time = 5.0
+        tja._stop_start_time = 5.0
+        tja._last_target_speed = 10.0
+        tja.reset()
+        assert tja._state == TJAState.INACTIVE
+        assert tja._state_enter_time == 0.0
+        assert tja._last_target_speed == 0.0
+
+    def test_get_status(self):
+        tja = TrafficJamAssist(make_test_config())
+        status = tja.get_status()
+        assert status["state"] == TJAState.INACTIVE
+        assert "time_in_state" in status
+        assert "last_target_speed" in status
+
+
+# ── TrafficJamAssist — state machine transitions ──────────────────────────────
+
+
+class TestTJATransitions:
+    """Test TJA state machine transitions."""
+
+    def test_inactive_to_active(self):
+        """INACTIVE → ACTIVE when ego_speed < activate_speed AND lead detected."""
+        tja = TrafficJamAssist(make_test_config())
+        result = tja.update(
+            lead_distance_m=20.0,
+            lead_speed_ms=5.0,
+            ego_speed_ms=5.0,
+            timestamp=0.0,
+        )
+        assert result["state"] == TJAState.ACTIVE
+        assert result["active"] is True
+        assert result["reason"] == "following_lead"
+
+    def test_inactive_stays_inactive_when_speed_too_high(self):
+        """INACTIVE stays when ego_speed >= activate_speed."""
+        tja = TrafficJamAssist(make_test_config())
+        result = tja.update(
+            lead_distance_m=20.0,
+            lead_speed_ms=5.0,
+            ego_speed_ms=10.0,  # > activate_speed
+            timestamp=0.0,
+        )
+        assert result["state"] == TJAState.INACTIVE
+        assert result["active"] is False
+        assert result["throttle"] == -1
+        assert result["brake"] == -1
+        assert result["target_speed_ms"] == -1
+
+    def test_inactive_stays_inactive_when_no_lead(self):
+        """INACTIVE stays when no lead detected."""
+        tja = TrafficJamAssist(make_test_config())
+        result = tja.update(
+            lead_distance_m=math.inf,
+            lead_speed_ms=5.0,
+            ego_speed_ms=5.0,
+            timestamp=0.0,
+        )
+        assert result["state"] == TJAState.INACTIVE
+
+    def test_active_to_inactive_hysteresis(self):
+        """ACTIVE → INACTIVE when ego_speed > deactivate_speed (hysteresis)."""
+        tja = TrafficJamAssist(make_test_config())
+        # Enter ACTIVE
+        tja.update(lead_distance_m=20.0, lead_speed_ms=5.0,
+                   ego_speed_ms=5.0, timestamp=0.0)
+        assert tja._state == TJAState.ACTIVE
+        # Speed up above deactivate threshold
+        result = tja.update(lead_distance_m=20.0, lead_speed_ms=12.0,
+                            ego_speed_ms=13.0, timestamp=1.0)
+        assert result["state"] == TJAState.INACTIVE
+
+    def test_active_to_stopped(self):
+        """ACTIVE → STOPPED when lead close and lead_speed < 0.5."""
+        tja = TrafficJamAssist(make_test_config())
+        tja.update(lead_distance_m=20.0, lead_speed_ms=5.0,
+                   ego_speed_ms=5.0, timestamp=0.0)
+        result = tja.update(
+            lead_distance_m=2.0,  # < min_follow_distance
+            lead_speed_ms=0.1,    # < 0.5
+            ego_speed_ms=1.0,
+            timestamp=1.0,
+        )
+        assert result["state"] == TJAState.STOPPED
+        assert result["throttle"] == pytest.approx(0.0)
+        assert result["brake"] == pytest.approx(0.3)
+        assert result["target_speed_ms"] == pytest.approx(0.0)
+        assert result["reason"] == "stopped_holding_brake"
+
+    def test_stopped_to_creeping_when_lead_moves(self):
+        """STOPPED → CREEPING when lead_speed > 1.0."""
+        tja = TrafficJamAssist(make_test_config())
+        tja.update(lead_distance_m=20.0, lead_speed_ms=5.0,
+                   ego_speed_ms=5.0, timestamp=0.0)
+        tja.update(lead_distance_m=2.0, lead_speed_ms=0.1,
+                   ego_speed_ms=1.0, timestamp=1.0)
+        assert tja._state == TJAState.STOPPED
+        # Lead starts moving
+        result = tja.update(
+            lead_distance_m=5.0,
+            lead_speed_ms=1.5,  # > 1.0
+            ego_speed_ms=0.0,
+            timestamp=2.0,
+        )
+        assert result["state"] == TJAState.CREEPING
+        assert result["throttle"] == pytest.approx(0.15)
+        assert result["brake"] == pytest.approx(0.0)
+        assert result["target_speed_ms"] == pytest.approx(1.0)
+        assert result["reason"] == "creeping_forward"
+
+    def test_stopped_to_creeping_when_hold_time_expired(self):
+        """STOPPED → CREEPING when stop_hold_time expired."""
+        tja = TrafficJamAssist(make_test_config())  # hold time = 2.0s
+        tja.update(lead_distance_m=20.0, lead_speed_ms=5.0,
+                   ego_speed_ms=5.0, timestamp=0.0)
+        tja.update(lead_distance_m=2.0, lead_speed_ms=0.1,
+                   ego_speed_ms=1.0, timestamp=1.0)
+        assert tja._state == TJAState.STOPPED
+        # Hold time expired (lead still stopped)
+        result = tja.update(
+            lead_distance_m=2.0,
+            lead_speed_ms=0.0,  # still stopped
+            ego_speed_ms=0.0,
+            timestamp=4.0,  # 3s in stop > 2.0 hold time
+        )
+        assert result["state"] == TJAState.CREEPING
+
+    def test_creeping_to_active(self):
+        """CREEPING → ACTIVE when ego_speed > 2.0."""
+        tja = TrafficJamAssist(make_test_config())
+        tja.update(lead_distance_m=20.0, lead_speed_ms=5.0,
+                   ego_speed_ms=5.0, timestamp=0.0)
+        tja.update(lead_distance_m=2.0, lead_speed_ms=0.1,
+                   ego_speed_ms=1.0, timestamp=1.0)
+        tja.update(lead_distance_m=5.0, lead_speed_ms=1.5,
+                   ego_speed_ms=0.0, timestamp=2.0)
+        assert tja._state == TJAState.CREEPING
+        # Ego speeds up
+        result = tja.update(
+            lead_distance_m=10.0,
+            lead_speed_ms=3.0,
+            ego_speed_ms=2.5,  # > 2.0
+            timestamp=3.0,
+        )
+        assert result["state"] == TJAState.ACTIVE
+
+    def test_full_cycle(self):
+        """Full cycle: INACTIVE → ACTIVE → STOPPED → CREEPING → ACTIVE."""
+        tja = TrafficJamAssist(make_test_config())
+        t = 0.0
+        # INACTIVE → ACTIVE
+        r = tja.update(20.0, 5.0, 5.0, t); t += 1
+        assert r["state"] == TJAState.ACTIVE
+        # ACTIVE → STOPPED
+        r = tja.update(2.0, 0.1, 1.0, t); t += 1
+        assert r["state"] == TJAState.STOPPED
+        # STOPPED → CREEPING
+        r = tja.update(5.0, 1.5, 0.0, t); t += 1
+        assert r["state"] == TJAState.CREEPING
+        # CREEPING → ACTIVE
+        r = tja.update(10.0, 3.0, 2.5, t); t += 1
+        assert r["state"] == TJAState.ACTIVE
+
+
+# ── TJA — hysteresis ──────────────────────────────────────────────────────────
+
+
+class TestTJAHysteresis:
+    """Test activate/deactivate hysteresis."""
+
+    def test_activate_at_30kmh(self):
+        """Activate below 30 km/h (8.33 m/s) when lead detected."""
+        tja = TrafficJamAssist(make_test_config())
+        # Just below threshold
+        r = tja.update(lead_distance_m=20.0, lead_speed_ms=5.0,
+                       ego_speed_ms=8.0, timestamp=0.0)
+        assert r["state"] == TJAState.ACTIVE
+
+    def test_no_activate_above_30kmh(self):
+        """Do not activate at or above 30 km/h."""
+        tja = TrafficJamAssist(make_test_config())
+        r = tja.update(lead_distance_m=20.0, lead_speed_ms=5.0,
+                       ego_speed_ms=8.33, timestamp=0.0)
+        assert r["state"] == TJAState.INACTIVE
+
+    def test_deactivate_at_43kmh(self):
+        """Deactivate above 43 km/h (12 m/s)."""
+        tja = TrafficJamAssist(make_test_config())
+        # Activate first
+        tja.update(lead_distance_m=20.0, lead_speed_ms=5.0,
+                   ego_speed_ms=5.0, timestamp=0.0)
+        assert tja._state == TJAState.ACTIVE
+        # Speed between activate and deactivate → stays ACTIVE (hysteresis)
+        r = tja.update(lead_distance_m=20.0, lead_speed_ms=10.0,
+                       ego_speed_ms=10.0, timestamp=1.0)
+        assert r["state"] == TJAState.ACTIVE
+        # Above deactivate → INACTIVE
+        r = tja.update(lead_distance_m=20.0, lead_speed_ms=12.0,
+                       ego_speed_ms=13.0, timestamp=2.0)
+        assert r["state"] == TJAState.INACTIVE
+
+    def test_hysteresis_band(self):
+        """Speed in hysteresis band (8.33-12.0) keeps current state."""
+        tja = TrafficJamAssist(make_test_config())
+        # Activate
+        tja.update(lead_distance_m=20.0, lead_speed_ms=5.0,
+                   ego_speed_ms=5.0, timestamp=0.0)
+        # In band → stays ACTIVE
+        r = tja.update(lead_distance_m=20.0, lead_speed_ms=9.0,
+                       ego_speed_ms=9.0, timestamp=1.0)
+        assert r["state"] == TJAState.ACTIVE
+
+
+# ── TJA — NO_LEAD state ───────────────────────────────────────────────────────
+
+
+class TestTJANoLead:
+    """Test NO_LEAD state."""
+
+    def test_active_to_no_lead(self):
+        """ACTIVE → NO_LEAD when lead disappears (distance = inf)."""
+        tja = TrafficJamAssist(make_test_config())
+        tja.update(lead_distance_m=20.0, lead_speed_ms=5.0,
+                   ego_speed_ms=5.0, timestamp=0.0)
+        result = tja.update(
+            lead_distance_m=math.inf,
+            lead_speed_ms=5.0,
+            ego_speed_ms=5.0,
+            timestamp=1.0,
+        )
+        assert result["state"] == TJAState.NO_LEAD
+        assert result["throttle"] == pytest.approx(0.1)
+        assert result["brake"] == pytest.approx(0.0)
+        assert result["target_speed_ms"] == pytest.approx(1.0)
+        assert result["reason"] == "no_lead_slow_forward"
+
+    def test_no_lead_to_active(self):
+        """NO_LEAD → ACTIVE when lead reappears."""
+        tja = TrafficJamAssist(make_test_config())
+        tja.update(lead_distance_m=20.0, lead_speed_ms=5.0,
+                   ego_speed_ms=5.0, timestamp=0.0)
+        tja.update(lead_distance_m=math.inf, lead_speed_ms=5.0,
+                   ego_speed_ms=5.0, timestamp=1.0)
+        assert tja._state == TJAState.NO_LEAD
+        result = tja.update(
+            lead_distance_m=15.0,
+            lead_speed_ms=4.0,
+            ego_speed_ms=5.0,
+            timestamp=2.0,
+        )
+        assert result["state"] == TJAState.ACTIVE
+
+    def test_no_lead_to_inactive(self):
+        """NO_LEAD → INACTIVE when ego_speed > deactivate_speed."""
+        tja = TrafficJamAssist(make_test_config())
+        tja.update(lead_distance_m=20.0, lead_speed_ms=5.0,
+                   ego_speed_ms=5.0, timestamp=0.0)
+        tja.update(lead_distance_m=math.inf, lead_speed_ms=5.0,
+                   ego_speed_ms=5.0, timestamp=1.0)
+        assert tja._state == TJAState.NO_LEAD
+        result = tja.update(
+            lead_distance_m=math.inf,
+            lead_speed_ms=5.0,
+            ego_speed_ms=13.0,
+            timestamp=2.0,
+        )
+        assert result["state"] == TJAState.INACTIVE
+
+
+# ── TJA — ACTIVE following logic ──────────────────────────────────────────────
+
+
+class TestTJAActiveFollowing:
+    """Test ACTIVE state following logic."""
+
+    def test_target_speed_equals_lead_speed(self):
+        tja = TrafficJamAssist(make_test_config())
+        r = tja.update(lead_distance_m=20.0, lead_speed_ms=4.0,
+                       ego_speed_ms=3.0, timestamp=0.0)
+        assert r["state"] == TJAState.ACTIVE
+        assert r["target_speed_ms"] == pytest.approx(4.0)
+
+    def test_brake_when_too_close(self):
+        """When closer than desired distance, apply brake."""
+        tja = TrafficJamAssist(make_test_config())
+        tja.update(lead_distance_m=20.0, lead_speed_ms=5.0,
+                   ego_speed_ms=5.0, timestamp=0.0)
+        # Closer than desired (5 * 1.2 = 6m desired, give 4m)
+        r = tja.update(lead_distance_m=4.0, lead_speed_ms=5.0,
+                       ego_speed_ms=5.0, timestamp=1.0)
+        assert r["state"] == TJAState.ACTIVE
+        assert r["brake"] > 0.0
+        assert r["throttle"] == pytest.approx(0.0)
+
+    def test_throttle_when_far_and_slow(self):
+        """When far enough and ego slower than target, apply throttle."""
+        tja = TrafficJamAssist(make_test_config())
+        r = tja.update(lead_distance_m=30.0, lead_speed_ms=6.0,
+                       ego_speed_ms=2.0, timestamp=0.0)
+        assert r["state"] == TJAState.ACTIVE
+        assert r["throttle"] > 0.0
+
+
+# ── StopAndGo ─────────────────────────────────────────────────────────────────
+
+
+class TestStopAndGo:
+    """Test StopAndGo class."""
+
+    def test_initial_state_not_stopped(self):
+        sg = StopAndGo(make_test_config())
+        assert sg._stopped is False
+
+    def test_stops_when_lead_close_and_slow(self):
+        """When lead close and slow → stopped with brake."""
+        sg = StopAndGo(make_test_config())
+        r = sg.update(
+            lead_distance_m=2.0,  # < min_follow_distance
+            lead_speed_ms=0.1,    # < 0.5
+            ego_speed_ms=1.0,
+            timestamp=0.0,
+        )
+        assert r["stopped"] is True
+        assert r["brake"] == pytest.approx(0.3)
+        assert r["throttle"] == pytest.approx(0.0)
+        assert r["target_speed_ms"] == pytest.approx(0.0)
+
+    def test_stays_stopped_while_lead_stopped(self):
+        """Remains stopped while lead stays stopped."""
+        sg = StopAndGo(make_test_config())
+        sg.update(lead_distance_m=2.0, lead_speed_ms=0.1,
+                  ego_speed_ms=1.0, timestamp=0.0)
+        r = sg.update(lead_distance_m=2.0, lead_speed_ms=0.0,
+                      ego_speed_ms=0.0, timestamp=1.0)
+        assert r["stopped"] is True
+        assert r["brake"] == pytest.approx(0.3)
+
+    def test_restarts_when_lead_moves(self):
+        """When stopped and lead moves → restart with throttle ramp."""
+        sg = StopAndGo(make_test_config())
+        # Stop
+        sg.update(lead_distance_m=2.0, lead_speed_ms=0.1,
+                  ego_speed_ms=1.0, timestamp=0.0)
+        assert sg._stopped is True
+        # Lead moves
+        r = sg.update(lead_distance_m=5.0, lead_speed_ms=1.5,
+                      ego_speed_ms=0.0, timestamp=1.0)
+        assert r["stopped"] is False
+        assert r["brake"] == pytest.approx(0.0)
+        assert r["throttle"] >= 0.0
+
+    def test_restart_throttle_ramp(self):
+        """Restart throttle ramps from 0.0 to 0.2 over 1 second."""
+        sg = StopAndGo(make_test_config())
+        # Stop
+        sg.update(lead_distance_m=2.0, lead_speed_ms=0.1,
+                  ego_speed_ms=1.0, timestamp=0.0)
+        # Restart at t=1.0
+        r0 = sg.update(lead_distance_m=5.0, lead_speed_ms=1.5,
+                       ego_speed_ms=0.0, timestamp=1.0)
+        assert r0["stopped"] is False
+        assert r0["restart_ramp"] == pytest.approx(0.0)
+        assert r0["throttle"] == pytest.approx(0.0)
+        # Half way (0.5s into ramp)
+        r1 = sg.update(lead_distance_m=6.0, lead_speed_ms=2.0,
+                       ego_speed_ms=0.5, timestamp=1.5)
+        assert r1["restart_ramp"] == pytest.approx(0.5)
+        assert r1["throttle"] == pytest.approx(0.1)
+        # Full ramp (1.0s)
+        r2 = sg.update(lead_distance_m=7.0, lead_speed_ms=2.0,
+                       ego_speed_ms=1.0, timestamp=2.0)
+        assert r2["restart_ramp"] == pytest.approx(1.0)
+        assert r2["throttle"] == pytest.approx(0.2)
+
+    def test_restart_ramp_clamped_to_1(self):
+        """Restart ramp clamps to 1.0 after 1 second."""
+        sg = StopAndGo(make_test_config())
+        sg.update(lead_distance_m=2.0, lead_speed_ms=0.1,
+                  ego_speed_ms=1.0, timestamp=0.0)
+        sg.update(lead_distance_m=5.0, lead_speed_ms=1.5,
+                  ego_speed_ms=0.0, timestamp=1.0)
+        r = sg.update(lead_distance_m=8.0, lead_speed_ms=3.0,
+                      ego_speed_ms=2.0, timestamp=5.0)
+        assert r["restart_ramp"] == pytest.approx(1.0)
+        assert r["throttle"] == pytest.approx(0.2)
+
+    def test_smooth_stop_then_restart_cycle(self):
+        """Full stop → restart cycle."""
+        sg = StopAndGo(make_test_config())
+        t = 0.0
+        # Moving normally
+        r = sg.update(lead_distance_m=10.0, lead_speed_ms=3.0,
+                      ego_speed_ms=3.0, timestamp=t)
+        assert r["stopped"] is False
+        t += 1
+        # Lead stops close
+        r = sg.update(lead_distance_m=2.0, lead_speed_ms=0.1,
+                      ego_speed_ms=1.0, timestamp=t)
+        assert r["stopped"] is True
+        t += 1
+        # Lead moves again
+        r = sg.update(lead_distance_m=5.0, lead_speed_ms=1.5,
+                      ego_speed_ms=0.0, timestamp=t)
+        assert r["stopped"] is False
+        assert r["throttle"] >= 0.0
+
+    def test_get_debug_info(self):
+        """get_debug_info returns expected keys."""
+        sg = StopAndGo(make_test_config())
+        sg.update(lead_distance_m=2.0, lead_speed_ms=0.1,
+                  ego_speed_ms=1.0, timestamp=0.0)
+        sg.update(lead_distance_m=2.0, lead_speed_ms=0.0,
+                  ego_speed_ms=0.0, timestamp=2.0)
+        info = sg.get_debug_info()
+        assert "stopped_duration" in info
+        assert "restart_progress" in info
+        assert "last_throttle" in info
+        assert info["stopped_duration"] == pytest.approx(2.0)
+        assert info["last_throttle"] == pytest.approx(0.0)
+
+    def test_debug_info_when_not_stopped(self):
+        """stopped_duration is 0 when not stopped."""
+        sg = StopAndGo(make_test_config())
+        sg.update(lead_distance_m=10.0, lead_speed_ms=3.0,
+                  ego_speed_ms=3.0, timestamp=0.0)
+        info = sg.get_debug_info()
+        assert info["stopped_duration"] == pytest.approx(0.0)

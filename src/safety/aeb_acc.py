@@ -94,19 +94,23 @@ class AEBACC:
     def __init__(
         self,
         config: Optional[Dict[str, float]] = None,
-        ttc_threshold: float = AEB_TTC_THRESHOLD_S,
-        ttc_critical: float = AEB_TTC_CRITICAL_S,
-        time_gap: float = ACC_TIME_GAP_S,
-        min_distance: float = ACC_MIN_DISTANCE_M,
+        ttc_threshold: Optional[float] = None,
+        ttc_critical: Optional[float] = None,
+        time_gap: Optional[float] = None,
+        min_distance: Optional[float] = None,
     ):
-        # Start from defaults, then apply explicit kwargs, then optional config
+        # Start from defaults, apply config dict first, then explicit kwargs (kwargs win)
         cfg = dict(AEB_ACC_CONFIG)
-        cfg['aeb_ttc_threshold_s'] = ttc_threshold
-        cfg['aeb_ttc_critical_s'] = ttc_critical
-        cfg['acc_time_gap_s'] = time_gap
-        cfg['acc_min_distance_m'] = min_distance
         if config is not None:
             cfg.update(config)
+        if ttc_threshold is not None:
+            cfg['aeb_ttc_threshold_s'] = ttc_threshold
+        if ttc_critical is not None:
+            cfg['aeb_ttc_critical_s'] = ttc_critical
+        if time_gap is not None:
+            cfg['acc_time_gap_s'] = time_gap
+        if min_distance is not None:
+            cfg['acc_min_distance_m'] = min_distance
 
         self.ttc_threshold = cfg['aeb_ttc_threshold_s']
         self.ttc_critical = cfg['aeb_ttc_critical_s']
@@ -195,7 +199,7 @@ class AEBACC:
 
             # Bicycle filter: at edge of lane → warning flag only, no AEB
             if obs.type == ObstacleType.BICYCLE and (
-                self._bicycle_warning_lateral_min < abs(lateral) < self._bicycle_warning_lateral_max
+                self._bicycle_warning_lateral_min <= abs(lateral) <= self._bicycle_warning_lateral_max
             ):
                 self._bicycle_warning = True
                 logger.info(

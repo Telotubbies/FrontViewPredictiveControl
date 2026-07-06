@@ -54,3 +54,30 @@ class FrameState:
     right_px_bev: Optional[np.ndarray] = None
     left_curvature_m: float = 9999.0
     right_curvature_m: float = 9999.0
+    # ── ADAS status (full ADAS suite) ──────────────────────────────────────
+    # LDW + LKA Pro
+    ldw_state: str = "in_lane"          # in_lane | departing | departed
+    ldw_warning_active: bool = False
+    ldw_side: str = "none"              # left | right | none
+    lka_pro_assist: float = 0.0         # steering assist (rad)
+    # BSW + LCA
+    bsw_left_alert: str = "clear"       # clear | blind_spot | approaching
+    bsw_right_alert: str = "clear"
+    bsw_safe_left: bool = True
+    bsw_safe_right: bool = True
+    # TSR + Traffic Light
+    tsr_speed_limit_kmh: Optional[float] = None
+    tsr_traffic_light: str = "unknown"  # red | yellow | green | unknown
+    tsr_traffic_light_distance: float = -1.0
+    tsr_action: str = "none"            # none | stop | slow | proceed
+    # TJA + Stop & Go
+    tja_state: str = "inactive"         # inactive | active | stopped | creeping | no_lead
+    tja_active: bool = False
+    stop_and_go_stopped: bool = False
+    # AEB + ACC (already in safety/aeb_acc.py, expose status here)
+    aeb_active: bool = False
+    aeb_ttc: float = -1.0
+    aeb_warning_level: str = "none"     # none | caution | warning | critical
+    acc_active: bool = False
+    acc_target_speed_ms: float = -1.0
+    acc_distance_m: float = -1.0

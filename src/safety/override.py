@@ -6,6 +6,7 @@ Safety logic is completely independent from control module.
 """
 
 import logging
+import math
 import numpy as np
 from typing import Dict, Any, Tuple
 from dataclasses import dataclass
@@ -54,7 +55,8 @@ class SafetyOverride:
             min_speed_kmh=config.get('min_speed_kmh', 0.0),
             max_steering_angle=config.get('max_steering_angle', SAFETY_MAX_STEER_RAD),
             collision_timeout=config.get('collision_timeout', 5.0),
-            emergency_deceleration=config.get('emergency_deceleration', -5.0)
+            emergency_deceleration=config.get('emergency_deceleration', -5.0),
+            max_steer_rate=config.get('max_steer_rate', 0.1)
         )
 
         # State tracking
@@ -251,17 +253,23 @@ class SafetyOverride:
         throttle, brake = self.check_throttle_brake_conflict(throttle, brake)
 
         # Step 6: Jerk limiting (steering change rate)
-        max_rate = self.config.max_steer_rate
-        steer_delta = steering - self._prev_steer
-        if abs(steer_delta) > max_rate:
-            steering = self._prev_steer + np.clip(steer_delta, -max_rate, max_rate)
-            logger.warning(
-                f"⚠️  STEER RATE LIMITED: delta={steer_delta:.3f} > {max_rate:.3f}, "
-                f"clamped to {steering:.3f}"
-            )
-            self.override_count += 1
-            self.last_safety_override = 'steer_rate_limit'
-        self._prev_steer = steering
+        if self._prev_steer == 0.0 and steering != 0.0:
+            self._prev_steer = steering  # Initialize, no rate limit on first frame
+        else:
+            # Apply jerk limiting
+            delta = steering - self._prev_steer
+            if abs(delta) > self.config.max_steer_rate:
+                steering = self._prev_steer + math.copysign(
+                    self.config.max_steer_rate, delta
+                )
+                logger.warning(
+                    f"⚠️  STEER RATE LIMITED: delta={delta:.3f} > "
+                    f"{self.config.max_steer_rate:.3f}, "
+                    f"clamped to {steering:.3f}"
+                )
+                self.override_count += 1
+                self.last_safety_override = 'steer_rate_limit'
+            self._prev_steer = steering
 
         return steering, throttle, brake
 
