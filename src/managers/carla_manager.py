@@ -30,7 +30,12 @@ except ImportError:
     import carla
 
 from utils.type_hints import CarlaVehicleControl, CameraFrame
-from config_clean import get_config
+from config import *  # noqa: F401,F403
+import config as _config_module
+
+
+def get_config():
+    return _config_module
 
 logger = logging.getLogger(__name__)
 

@@ -11,7 +11,36 @@ import cv2
 import numpy as np
 from typing import Optional, Tuple
 
-from .. import edge_detection as edge
+
+# Inline replacements for deleted edge_detection module
+def _threshold(img, thresh=(0, 255)):
+    binary = np.zeros_like(img, dtype=np.uint8)
+    binary[(img >= thresh[0]) & (img <= thresh[1])] = 1
+    return binary, binary
+
+
+def _blur_gaussian(img, ksize=3):
+    return cv2.GaussianBlur(img, (ksize, ksize), 0)
+
+
+def _mag_thresh(img, sobel_kernel=3, thresh=(0, 255)):
+    gray = img if len(img.shape) == 2 else cv2.cvtColor(img, cv2.COLOR_BGR2GRAY)
+    sx = cv2.Sobel(gray, cv2.CV_64F, 1, 0, ksize=sobel_kernel)
+    sy = cv2.Sobel(gray, cv2.CV_64F, 0, 1, ksize=sobel_kernel)
+    mag = np.sqrt(sx ** 2 + sy ** 2)
+    mag = (mag / mag.max() * 255).astype(np.uint8) if mag.max() > 0 else mag.astype(np.uint8)
+    binary = np.zeros_like(mag, dtype=np.uint8)
+    binary[(mag >= thresh[0]) & (mag <= thresh[1])] = 1
+    return binary
+
+
+class _EdgeShim:
+    threshold = staticmethod(_threshold)
+    blur_gaussian = staticmethod(_blur_gaussian)
+    mag_thresh = staticmethod(_mag_thresh)
+
+
+edge = _EdgeShim()
 
 
 def _default_roi_points(width: int, height: int) -> np.ndarray:

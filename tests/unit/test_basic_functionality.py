@@ -109,9 +109,9 @@ class TestBasicFunctionality(unittest.TestCase):
         # Test instantiation
         manager = CarlaManager()
 
-        # Test that camera_callback method exists
+        # Test that camera_callback attribute exists (None until registered)
         self.assertTrue(hasattr(manager, 'camera_callback'))
-        self.assertTrue(callable(manager.camera_callback))
+        self.assertIsNone(manager.camera_callback)
 
     def test_pipeline_import(self):
         """Test LKAPipeline import and basic functionality."""

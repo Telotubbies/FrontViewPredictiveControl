@@ -80,3 +80,9 @@ class UXColors:
     TEXT_NORMAL = (200, 200, 200)
     TEXT_DIM = (120, 125, 140)
     SECTION_LABEL = (180, 180, 180)
+    # Aliases used by gui/dashboard.py
+    TEXT = TEXT_NORMAL
+    SUCCESS = GREEN_VALID
+    WARNING = (255, 200, 80)
+    ERROR = RED_INVALID
+    BACKGROUND = (30, 30, 30)

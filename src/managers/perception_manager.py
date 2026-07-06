@@ -19,7 +19,12 @@ import torch
 from utils.type_hints import (
     CameraFrame, PerceptionResult, DetectionMode
 )
-from config_clean import get_config
+from config import *  # noqa: F401,F403
+import config as _config_module
+
+
+def get_config():
+    return _config_module
 
 logger = logging.getLogger(__name__)
 

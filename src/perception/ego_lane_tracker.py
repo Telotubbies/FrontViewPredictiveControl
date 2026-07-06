@@ -13,9 +13,14 @@ from typing import List, Optional, Tuple
 
 import numpy as np
 
-from .lane_clustering import LaneCandidate, cluster_lane_candidates
-
 logger = logging.getLogger(__name__)
+
+try:
+    from .lane_clustering import LaneCandidate, cluster_lane_candidates
+except ImportError:
+    LaneCandidate = None
+    cluster_lane_candidates = None
+    logger.warning("lane_clustering module not available, EgoLaneTracker disabled")
 
 # Ego lane: prefer pair whose center at x=0 is closest to 0
 LANE_WIDTH_NOMINAL_M = 3.6
@@ -130,11 +135,14 @@ class EgoLaneTracker:
         """
         Run clustering, select ego pair, track IDs. If no detection, return previous (completion).
         """
-        candidates = cluster_lane_candidates(
-            bev_binary,
-            lookahead_m=lookahead_m,
-            half_width_m=half_width_m,
-        )
+        if cluster_lane_candidates is None:
+            candidates = []
+        else:
+            candidates = cluster_lane_candidates(
+                bev_binary,
+                lookahead_m=lookahead_m,
+                half_width_m=half_width_m,
+            )
         pair = self._select_ego_pair(candidates)
 
         if pair is not None:

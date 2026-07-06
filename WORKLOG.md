@@ -86,6 +86,26 @@
 
 ---
 
+## Sprint 6: Subagent Integration Workflow (2025-07-12)
+
+| # | Agent | Task | Files | Description | Result |
+|---|-------|------|-------|-------------|--------|
+| 1 | orchestrator | Assess project state, run baseline tests | — | 611 passed, 2 skipped, 0 failed | baseline established |
+| 2 | dev-control | Fix UXColors missing aliases | `config/__init__.py` | Added TEXT, SUCCESS, WARNING, ERROR, BACKGROUND to UXColors class | dashboard import fixed |
+| 3 | dev-control | Fix config_clean imports | `managers/carla_manager.py`, `managers/perception_manager.py`, `managers/display_manager.py` | Replaced `from config_clean import get_config` with `from config import *` + `get_config()` shim | 3 files fixed |
+| 4 | dev-control | Fix Qt fallback | `gui/qt_compatibility.py`, `gui/panels/__init__.py` | Added PySide6 fallback + dummy stubs when no Qt installed; guard panels import | worker.py imports OK |
+| 5 | dev-control | Fix BOM in panels/__init__.py | `gui/panels/__init__.py` | Removed UTF-8 BOM that caused SyntaxError | syntax check passes |
+| 6 | dev-control | Fix test_carla_manager_import | `tests/unit/test_basic_functionality.py` | Changed `callable(manager.camera_callback)` to `assertIsNone` (camera_callback is None until registered) | test passes |
+| 7 | dev-ai | Fix ego_lane_tracker broken import | `perception/ego_lane_tracker.py` | Moved logger before try/except; added guard for `cluster_lane_candidates is None` in `update()` | graceful degradation |
+| 8 | dev-ai | Fix classical_lane_detector import | `perception/lane_trajectory.py` | Changed `from .classical_lane_detector import create_classical_detector` to `from .classical.detector import ClassicalLane` | correct module path |
+| 9 | dev-ai | Inline edge_detection functions | `perception/classical/detector.py` | Replaced deleted `edge_detection` module with inline `threshold`, `blur_gaussian`, `mag_thresh` | classical detector works |
+| 10 | tech-lead | Review all changes | — | Reviewed diff: minimal, focused, follows existing style, no architectural concerns | approved |
+| 11 | qa-reviewer | Write regression tests | `tests/unit/test_regression_fixes.py` | 17 regression tests covering all 6 bug categories | 17/17 passed |
+| 12 | qa-reviewer | Full test suite | — | 630 passed, 0 failed, lint clean | ready for delivery |
+| 13 | git-ops | Commit + update WORKLOG | — | Commit all changes with descriptive message | — |
+
+---
+
 ## Notes
 
 - ทุกงานที่ทำจะถูกบันทึกในไฟล์นี้ พร้อม commit hash

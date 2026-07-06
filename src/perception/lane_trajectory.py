@@ -1510,8 +1510,8 @@ class LaneTrajectoryPipeline:
             self.detector = detector
         elif use_classical_detector:
             # Use classical color-based detector (no GPU required)
-            from .classical_lane_detector import create_classical_detector
-            self.detector = create_classical_detector(carla_optimized=True)
+            from .classical.detector import ClassicalLane
+            self.detector = ClassicalLane()
             logger.info("Using Classical Lane Detector (color thresholding, no GPU)")
         else:
             # Default: use UNet detector
