@@ -19,7 +19,6 @@ from pathlib import Path
 from typing import Optional
 
 import numpy as np
-import torch
 
 # Setup CARLA paths
 from core import setup_carla_paths
@@ -77,8 +76,9 @@ class CARLAMPCSystem:
         self._prev_steer = 0.0
         self._prev_throttle = 0.0
 
-        # Device setup
-        self.device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+        # Device setup — supports CUDA (NVIDIA) and ROCm (AMD)
+        from utils.device_utils import get_device
+        self.device = get_device()
 
         # System state
         self.running = False

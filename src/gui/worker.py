@@ -86,9 +86,8 @@ class CarlaWorker(QObject):
             from config import CAM_W, CAM_H, CAM_FOV_DEG
             from pipeline import LKAPipeline
             from carla_input_output import get_waypoints, waypoints_to_cte_heading, cleanup
-            import torch
-
-            device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+            from utils.device_utils import get_device
+            device = get_device()
             pipeline = LKAPipeline(self._model_path, device, target_speed_kmh=25.0, use_trajectory_pipeline=True)
             pipeline.reset()
 

@@ -111,8 +111,11 @@ def validate(model, val_loader, criterion, device, epoch):
 
 
 def main(args):
-    # Setup device
-    device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
+    # Setup device (supports CUDA + ROCm/AMD)
+    import sys
+    sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "src"))
+    from utils.device_utils import get_device
+    device = get_device()
     print(f"Using device: {device}")
     
     # Create output directory

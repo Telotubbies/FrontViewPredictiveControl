@@ -14,7 +14,6 @@ import threading
 import time
 import queue
 from typing import Optional, Any
-import torch
 
 from utils.type_hints import (
     CameraFrame, PerceptionResult, DetectionMode
@@ -43,8 +42,9 @@ class PerceptionManager:
         # Configuration
         self.config = get_config()
 
-        # Device setup
-        self.device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+        # Device setup — supports CUDA (NVIDIA) and ROCm (AMD)
+        from utils.device_utils import get_device
+        self.device = get_device()
 
         # Pipeline components
         self.pipeline: Optional[Any] = None

@@ -43,7 +43,8 @@ def main():
     import torch
     import numpy as np
 
-    device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+    from utils.device_utils import get_device
+    device = get_device()
     print(f"Device: {device}")
 
     # Load data
