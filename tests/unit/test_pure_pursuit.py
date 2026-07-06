@@ -127,6 +127,7 @@ class TestComputeSteering:
         c = PurePursuitController()
         s1 = c.compute_steering(cte=1.0, heading_err=0.0, speed_ms=10.0)
         s2 = c.compute_steering(cte=-1.0, heading_err=0.0, speed_ms=10.0)
+        assert s1 != s2  # different inputs → different outputs
         # s2 should be less extreme than raw due to smoothing
         raw_s2 = math.atan(2.0 * c.L * (-1.0) / (c.compute_lookahead(10.0) ** 2))
         assert abs(s2) < abs(raw_s2) + 0.01

@@ -111,12 +111,12 @@ def get_reference_path_quintic(
 ) -> List[Tuple[float, float]]:
     """
     Generate reference path using quintic polynomial for smooth trajectories.
-    
+
     Quintic polynomial (5th order) provides:
     - Continuous position, velocity, acceleration
     - Smoother curvature
     - Better passenger comfort
-    
+
     Boundary conditions:
     - Initial: y(0) = cte_m, y'(0) = tan(head_rad) ≈ head_rad, y''(0) = curv
     - Final: y(T) = 0 (lane center), y'(T) = 0 (aligned), y''(T) = 0 (straight)
@@ -157,7 +157,7 @@ def get_reference_path(
 ) -> List[Tuple[float, float]]:
     """
     Generate reference path in vehicle frame from current state.
-    
+
     Args:
         cte_m: Cross-track error (m)
         head_rad: Heading error (rad)
@@ -165,7 +165,7 @@ def get_reference_path(
         lookahead_m: Lookahead distance (m)
         num_pts: Number of points
         use_quintic: Use quintic polynomial (smoother) vs parabolic (faster)
-    
+
     Returns:
         List of (s_m, lateral_m) path points
     """
