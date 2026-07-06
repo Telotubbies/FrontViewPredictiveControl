@@ -35,7 +35,6 @@ except ImportError:
     BSPLINE_AVAILABLE = False
     logging.warning("B-spline fitter not available, using polynomial fitting")
 
-from .lane_clustering import cluster_lane_candidates
 from .kalman_lane_tracker import KalmanLaneTracker
 
 try:
@@ -917,22 +916,12 @@ def _draw_sliding_window_vis(
                              color=(255, 100, 0), thickness=BEV_VIS_BOUNDARY_THICKNESS, max_x_m=max_x_m)
 
     # Optional: หลายเส้น — draw adjacent lane candidates (grey) in BEV
-    try:
-        candidates = cluster_lane_candidates(
-            bev_binary,
-            lookahead_m=lookahead_m,
-            half_width_m=half_width_m,
-            ego_lateral_filter_m=ADJACENT_LANE_MAX_M + 1.0,
-        )
-        for c in candidates:
-            lat = abs(c.lateral_at_ego_m)
-            if ADJACENT_LANE_MIN_M <= lat <= ADJACENT_LANE_MAX_M:
-                _draw_poly_curve_bev(
-                    vis, c.coeffs, h, w, lookahead_m, half_width_m,
-                    color=(180, 180, 180), thickness=1, max_x_m=max_x_m,
-                )
-    except Exception:
-        pass
+    # (lane_clustering module removed during cleanup; adjacent lane viz disabled)
+    # try:
+    #     candidates = cluster_lane_candidates(...)
+    #     ...
+    # except Exception:
+    #     pass
 
     return vis
 

@@ -24,7 +24,7 @@ class TestLKAPipeline:
         self.device = torch.device("cpu")
         self.target_speed_kmh = 30.0
 
-        with patch('pipeline.RoadPerception'), \
+        with patch('pipeline.BEVRoadPerception'), \
              patch('pipeline.LaneTemporalSmoother'), \
              patch('pipeline.LaneMPC'), \
              patch('pipeline.SafetyOverride'):
@@ -103,11 +103,12 @@ class TestLKAPipelineWithTrajectory:
         self.device = torch.device("cpu")
         self.target_speed_kmh = 30.0
 
-        with patch('pipeline.RoadPerception'), \
+        import perception.lane_trajectory as _lt
+        with patch('pipeline.BEVRoadPerception'), \
              patch('pipeline.LaneTemporalSmoother'), \
              patch('pipeline.LaneMPC'), \
              patch('pipeline.SafetyOverride'), \
-             patch('pipeline.LaneTrajectoryPipeline') as mock_trajectory:
+             patch.object(_lt, 'LaneTrajectoryPipeline') as mock_trajectory:
             self.pipeline = LKAPipeline(
                 self.model_path,
                 self.device,
@@ -135,7 +136,10 @@ class TestLKAPipelineWithTrajectory:
 
         # Mock other components
         self.pipeline._mpc.solve = Mock(return_value=(0.1, 0.2, 0.0))
+        self.pipeline._mpc.steer_to_carla = Mock(return_value=0.1)
+        self.pipeline._mpc.accel_to_carla = Mock(return_value=(0.5, 0.0))
         self.pipeline._safety.apply = Mock(return_value=(0.1, 0.2, 0.0))
+        self.pipeline._safety.apply_safety_override = Mock(return_value=(0.1, 0.5, 0.0))
 
         rgb_input = np.random.randint(0, 255, (480, 640, 3), dtype=np.uint8)
 
