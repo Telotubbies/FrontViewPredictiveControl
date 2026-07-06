@@ -6,7 +6,6 @@ Safety logic is completely independent from control module.
 """
 
 import logging
-import math
 import numpy as np
 from typing import Dict, Any, Tuple
 from dataclasses import dataclass
@@ -30,7 +29,6 @@ class SafetyConfig:
     max_steering_angle: float = 0.5
     collision_timeout: float = 5.0
     emergency_deceleration: float = -5.0  # m/s²
-    max_steer_rate: float = 0.1
 
 
 class SafetyOverride:
@@ -55,14 +53,12 @@ class SafetyOverride:
             min_speed_kmh=config.get('min_speed_kmh', 0.0),
             max_steering_angle=config.get('max_steering_angle', SAFETY_MAX_STEER_RAD),
             collision_timeout=config.get('collision_timeout', 5.0),
-            emergency_deceleration=config.get('emergency_deceleration', -5.0),
-            max_steer_rate=config.get('max_steer_rate', 0.1)
+            emergency_deceleration=config.get('emergency_deceleration', -5.0)
         )
 
         # State tracking
         self.last_safety_override = None
         self.override_count = 0
-        self._prev_steer = 0.0
 
         logger.info("✅ SafetyOverride initialized")
         logger.info(f"  - Emergency brake: {self.config.emergency_brake_enabled}")
@@ -105,35 +101,6 @@ class SafetyOverride:
             if speed_kmh < -0.1:  # Negative speed is invalid
                 logger.warning(f"⚠️  Invalid negative speed: {speed_kmh:.1f} km/h")
                 return throttle, min(brake, 0.5)  # Reduce brake if negative
-
-        return throttle, brake
-
-    def check_throttle_brake_conflict(
-        self,
-        throttle: float,
-        brake: float
-    ) -> Tuple[float, float]:
-        """
-        Check for throttle/brake conflict.
-
-        If both throttle and brake are applied simultaneously, brake wins
-        for safety and throttle is zeroed.
-
-        Args:
-            throttle: Proposed throttle value
-            brake: Proposed brake value
-
-        Returns:
-            (throttle, brake) with conflict resolved
-        """
-        if throttle > 0.1 and brake > 0.1:
-            logger.warning(
-                f"⚠️  THROTTLE/BRAKE CONFLICT: throttle={throttle:.3f}, "
-                f"brake={brake:.3f} - brake wins, throttle zeroed"
-            )
-            self.override_count += 1
-            self.last_safety_override = 'throttle_brake_conflict'
-            return 0.0, brake
 
         return throttle, brake
 
@@ -249,28 +216,6 @@ class SafetyOverride:
             vehicle_state, throttle, brake
         )
 
-        # Step 5: Check throttle/brake conflict
-        throttle, brake = self.check_throttle_brake_conflict(throttle, brake)
-
-        # Step 6: Jerk limiting (steering change rate)
-        if self._prev_steer == 0.0 and steering != 0.0:
-            self._prev_steer = steering  # Initialize, no rate limit on first frame
-        else:
-            # Apply jerk limiting
-            delta = steering - self._prev_steer
-            if abs(delta) > self.config.max_steer_rate:
-                steering = self._prev_steer + math.copysign(
-                    self.config.max_steer_rate, delta
-                )
-                logger.warning(
-                    f"⚠️  STEER RATE LIMITED: delta={delta:.3f} > "
-                    f"{self.config.max_steer_rate:.3f}, "
-                    f"clamped to {steering:.3f}"
-                )
-                self.override_count += 1
-                self.last_safety_override = 'steer_rate_limit'
-            self._prev_steer = steering
-
         return steering, throttle, brake
 
     def check_cte_intervention(
@@ -296,9 +241,9 @@ class SafetyOverride:
         # Get CTE from vehicle state
         current_cte = vehicle_state.get('cte', 0.0)
 
-        # CTE limit configuration (from config)
-        cte_limit = SAFETY_CTE_LIMIT_M
-        max_speed_reduction = SAFETY_CTE_MAX_SPEED_REDUCTION
+        # CTE limit configuration
+        cte_limit = 2.0  # meters
+        max_speed_reduction = 0.5  # Reduce speed by up to 50%
 
         if abs(current_cte) > cte_limit:
             # CTE exceeds limit - reduce speed to allow correction

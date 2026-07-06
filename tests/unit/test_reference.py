@@ -292,3 +292,5 @@ class TestGetReferencePathQuintic:
         # Check no large jumps between consecutive points
         for i in range(1, len(lats)):
             assert abs(lats[i] - lats[i - 1]) < 1.0
+            assert abs(lats[i] - lats[i - 1]) < 1.0
+            assert abs(lats[i] - lats[i - 1]) < 1.0

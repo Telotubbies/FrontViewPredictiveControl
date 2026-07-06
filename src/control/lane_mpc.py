@@ -21,7 +21,6 @@ Constraints:
 """
 
 import logging
-import time
 from typing import Optional
 
 import numpy as np
@@ -140,12 +139,6 @@ class LaneMPC:
         self._pp = PurePursuitController(
             wheelbase=self.cfg.L, max_steer=self.cfg.max_steer
         )
-        # Solver stats tracking
-        self._total_solves = 0
-        self._fallback_count = 0
-        self._consecutive_fallbacks = 0
-        self._last_solve_time = 0.0
-        self._last_status = "Init"
         self._build_solver()
 
     def set_horizon(self, N: int) -> None:
@@ -284,7 +277,6 @@ class LaneMPC:
         opts = {
             "ipopt.print_level": 0,
             "ipopt.max_iter": 50,
-            "ipopt.max_cpu_time": 0.08,  # MPC_DT=0.1s → solver must finish in 80ms
             "ipopt.warm_start_init_point": "yes",
             "ipopt.acceptable_tol": 1e-4,
             "print_time": 0,
@@ -344,7 +336,6 @@ class LaneMPC:
         x_init = self._prev_x0 if self._prev_x0 is not None and len(self._prev_x0) == n_x + n_u else np.zeros(n_x + n_u)
 
         try:
-            t_start = time.time()
             sol = self._solver(
                 x0=x_init,
                 lbx=self._lb,
@@ -353,7 +344,6 @@ class LaneMPC:
                 ubg=self._ub_g,
                 p=p,
             )
-            self._last_solve_time = time.time() - t_start
 
             opt = sol["x"].full().flatten()
             u0 = opt[n_x:n_x + 2]
@@ -363,35 +353,14 @@ class LaneMPC:
             self._prev_u = np.array([steer, accel])
             self._prev_x0 = opt.copy()
             self._pp.reset()
-
-            # Solver stats
-            self._total_solves += 1
-            self._consecutive_fallbacks = 0
-            self._last_status = "Solve_Succeeded"
-            f_opt = float(sol["f"].full().flatten()[0]) if "f" in sol else float("nan")
-            logger.debug(
-                "MPC solve ok: status=%s f_opt=%.4f time=%.1fms",
-                self._last_status, f_opt, self._last_solve_time * 1000.0,
-            )
             return steer, accel, "Solve_Succeeded"
 
         except Exception as e:
-            self._fallback_count += 1
-            self._consecutive_fallbacks += 1
-            self._last_status = "Fallback_PP"
-            if self._consecutive_fallbacks % 10 == 0:
-                logger.warning(
-                    "MPC solver failed %d consecutive times — using Pure Pursuit fallback: "
-                    "cte=%.3f heading=%.3f v_ref=%.2f v0=%.2f — %s",
-                    self._consecutive_fallbacks,
-                    cte, heading_err, v_ref, v0, e,
-                )
-            else:
-                logger.warning(
-                    "MPC solver failed, using Pure Pursuit fallback: cte=%.3f heading=%.3f v_ref=%.2f v0=%.2f — %s",
-                    cte, heading_err, v_ref, v0, e,
-                    exc_info=True,
-                )
+            logger.warning(
+                "MPC solver failed, using Pure Pursuit fallback: cte=%.3f heading=%.3f v_ref=%.2f v0=%.2f — %s",
+                cte, heading_err, v_ref, v0, e,
+                exc_info=True,
+            )
             steer = self._pp.compute_steering(cte, heading_err, v0, curvature)
             steer = float(np.clip(steer, -c.max_steer, c.max_steer))
             accel = 0.5 * (v_ref - v0)
@@ -399,23 +368,6 @@ class LaneMPC:
             self._prev_u = np.array([steer, accel])
             self._prev_x0 = None
             return steer, accel, "Fallback_PP"
-
-    def get_solver_stats(self) -> dict:
-        """Return solver statistics for monitoring/diagnostics.
-
-        Returns:
-            dict with keys:
-                total_solves: count of successful solves
-                fallback_count: total count of fallback invocations
-                last_solve_time_ms: wall-clock time of last solve attempt (ms)
-                last_status: "Solve_Succeeded", "Fallback_PP", or "Init"
-        """
-        return {
-            "total_solves": self._total_solves,
-            "fallback_count": self._fallback_count,
-            "last_solve_time_ms": self._last_solve_time * 1000.0,
-            "last_status": self._last_status,
-        }
 
     def steer_to_carla(self, steer_rad: float):
         """Convert MPC steering (radians) to CARLA [-1, 1]."""
@@ -465,5 +417,4 @@ def _test_mpc():
 
 if __name__ == "__main__":
     logging.basicConfig(level=logging.INFO, format="%(message)s")
-    _test_mpc()
     _test_mpc()

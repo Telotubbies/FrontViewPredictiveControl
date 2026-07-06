@@ -123,9 +123,6 @@ class BSplineLaneFitter:
         t[1:] = np.cumsum(np.sqrt(np.diff(x)**2 + np.diff(y)**2))
         t = t / t[-1]  # Normalize to [0, 1]
 
-        # Create knot vector
-        self.num_control_points - self.degree + 1
-
         # Fit B-spline
         try:
             tck, _ = interpolate.splprep([x, y], u=t, k=self.degree, s=0.1)
@@ -285,77 +282,6 @@ class BSplineLaneFitter:
 
         return left_points[:, 1], right_points[:, 1]
 
-    def enforce_parallel_constraint(
-        self,
-        left_spline: interpolate.BSpline,
-        right_spline: interpolate.BSpline,
-        angle_threshold_deg: float = 5.0,
-    ) -> interpolate.BSpline:
-        """
-        Enforce parallel tangent constraint between left and right lane splines.
-
-        For each control point, the tangent direction of the right lane is
-        compared to the tangent direction of the left lane. If the angle
-        difference exceeds ``angle_threshold_deg`` degrees, the right lane
-        control point is adjusted so that its tangent aligns with the left
-        lane tangent direction.
-
-        Args:
-            left_spline: Reference B-spline for the left lane.
-            right_spline: B-spline for the right lane to be adjusted.
-            angle_threshold_deg: Maximum allowed angle difference (degrees)
-                between left and right tangents before correction is applied.
-
-        Returns:
-            Adjusted right lane B-spline with corrected control points. If
-            either input spline is ``None``, the original ``right_spline`` is
-            returned unchanged.
-        """
-        if left_spline is None or right_spline is None:
-            return right_spline
-
-        angle_threshold_rad = np.deg2rad(angle_threshold_deg)
-
-        # Derive tangent directions via spline derivatives
-        left_deriv = left_spline.derivative()
-        right_deriv = right_spline.derivative()
-
-        # Sample at uniform parameter values matching control point count
-        n = len(right_spline.c)
-        t_samples = np.linspace(0, 1, n)
-
-        left_tangents = left_deriv(t_samples)
-        right_tangents = right_deriv(t_samples)
-
-        right_c = right_spline.c.copy()
-
-        for i in range(n):
-            lt = left_tangents[i]
-            rt = right_tangents[i]
-
-            left_angle = np.arctan2(lt[1], lt[0])
-            right_angle = np.arctan2(rt[1], rt[0])
-
-            # Smallest signed angle difference in [-pi, pi]
-            angle_diff = np.arctan2(
-                np.sin(right_angle - left_angle),
-                np.cos(right_angle - left_angle),
-            )
-
-            if np.abs(angle_diff) > angle_threshold_rad:
-                # Rotate the right tangent to match the left tangent direction
-                left_dir = np.array([np.cos(left_angle), np.sin(left_angle)])
-                right_mag = np.linalg.norm(rt)
-                new_tangent = left_dir * right_mag
-
-                # Shift the control point so the local tangent aligns
-                right_c[i] = right_c[i] + (new_tangent - rt) * 0.5
-
-        adjusted_spline = interpolate.BSpline(
-            right_spline.t, right_c, right_spline.k
-        )
-        return adjusted_spline
-
 
 class GeometricLaneValidator:
     """
@@ -458,66 +384,3 @@ def convert_bspline_to_polynomial(
     except Exception as e:
         logger.warning(f"Polynomial conversion failed: {e}")
         return None
-
-
-def compute_lane_width_profile(
-    spline_left: Optional[interpolate.BSpline],
-    spline_right: Optional[interpolate.BSpline],
-    s_values: np.ndarray,
-) -> np.ndarray:
-    """
-    Compute the lane width profile along the arc-length parameter.
-
-    Evaluates both the left and right lane splines at the given parameter
-    values and returns the Euclidean distance between corresponding points.
-
-    Args:
-        spline_left: B-spline representing the left lane.
-        spline_right: B-spline representing the right lane.
-        s_values: Array of parameter values (typically normalized arc length
-            in ``[0, 1]``) at which to evaluate the width.
-
-    Returns:
-        Array of lane widths (in meters) at each ``s`` position. Returns an
-        empty array if either spline is ``None``.
-    """
-    if spline_left is None or spline_right is None:
-        return np.array([])
-
-    left_points = spline_left(s_values)
-    right_points = spline_right(s_values)
-
-    widths = np.linalg.norm(left_points - right_points, axis=1)
-    return widths
-
-
-def width_consistency_score(widths: np.ndarray) -> float:
-    """
-    Compute a [0, 1] consistency score for a lane width profile.
-
-    A score of 1.0 indicates perfectly consistent width (coefficient of
-    variation ``std / mean < 0.05``). The score degrades linearly as the
-    variation increases, reaching 0.0 when ``std / mean >= 0.5``.
-
-    Args:
-        widths: Array of lane width measurements (meters).
-
-    Returns:
-        Consistency score in ``[0, 1]``. Returns 1.0 for empty or
-        constant-width inputs.
-    """
-    if widths is None or len(widths) == 0:
-        return 1.0
-
-    mean_width = float(np.mean(widths))
-    if mean_width < 1e-6:
-        return 1.0
-
-    cv = float(np.std(widths)) / mean_width  # coefficient of variation
-
-    if cv < 0.05:
-        return 1.0
-
-    # Linearly map [0.05, 0.5] -> [1.0, 0.0]
-    score = 1.0 - (cv - 0.05) / (0.5 - 0.05)
-    return float(np.clip(score, 0.0, 1.0))

@@ -8,137 +8,14 @@ import numpy as np
 from config import (
     REF_PATH_LOOKAHEAD_M,
     REF_PATH_NUM_PTS,
+    LOOKAHEAD_MIN_M,
+    LOOKAHEAD_TIME_S,
 )
 
 
-def dynamic_lookahead_m(speed_ms: float, curvature: float = 0.0) -> float:
-    """
-    Compute a speed- and curvature-aware lookahead distance.
-
-    Physics:
-        A longer lookahead gives the controller more preview time to react,
-        which is beneficial at high speed where vehicle dynamics are faster
-        and braking distance grows quadratically with speed.  Conversely, in
-        tight curves a shorter lookahead keeps the reference point close to
-        the vehicle so the controller does not "cut" the corner.
-
-    Formula:
-        base = 20 m
-        speed_gain = +0.3 * speed_ms   (capped at +10 m)
-        curve_pen  = -15 * |curvature| (capped at -10 m)
-        lookahead  = clamp(base + speed_gain + curve_pen, 8, 30) m
-
-    Backward compatibility:
-        ``curvature`` defaults to 0.0 (straight road) so existing
-        single-argument callers (``dynamic_lookahead_m(speed_ms)``) continue
-        to work without modification, now using the speed-scaled formula with
-        no curve penalty.
-
-    Args:
-        speed_ms:  Vehicle longitudinal speed (m/s).
-        curvature: Path curvature at the current location (1/m). Defaults to
-            0.0 (straight road).
-
-    Returns:
-        Lookahead distance in meters, clamped to [8, 30].
-    """
-    base = 20.0
-    speed_gain = min(0.3 * speed_ms, 10.0)
-    curve_pen = max(-15.0 * abs(curvature), -10.0)
-    lookahead = base + speed_gain + curve_pen
-    return float(np.clip(lookahead, 8.0, 30.0))
-
-
-def compute_curvature_profile(
-    path: List[Tuple[float, float]],
-) -> np.ndarray:
-    """
-    Compute the curvature profile of a path given in (s, lat) coordinates.
-
-    Physics:
-        In the vehicle frame the path is described by a lateral offset
-        ``lat(s)`` as a function of arc length ``s``.  For small angles the
-        curvature ``κ`` is well approximated by the second derivative of the
-        lateral displacement with respect to arc length:
-
-            κ(s) ≈ d²lat / ds²
-
-        This is the standard small-angle approximation used in path-tracking
-        controllers (e.g., pure pursuit / MPC bicycle models) where the
-        heading deviation is small enough that the full curvature formula
-        ``κ = |y''| / (1 + y'²)^(3/2)`` reduces to ``|y''|``.
-
-    The second derivative is estimated with a central finite difference on
-    the interior points and a one-sided (forward/backward) difference at the
-    boundaries so that the output has the same length as the input.
-
-    Args:
-        path: List of (s, lat) tuples ordered by increasing arc length ``s``.
-
-    Returns:
-        np.ndarray of curvature values (1/m) with the same length as ``path``.
-        Returns an array of zeros if the path has fewer than 3 points or if
-        the arc-length spacing is degenerate.
-    """
-    n = len(path)
-    if n < 3:
-        return np.zeros(n, dtype=np.float64)
-
-    s = np.array([p[0] for p in path], dtype=np.float64)
-    lat = np.array([p[1] for p in path], dtype=np.float64)
-
-    # Sort by arc length to ensure monotonic spacing.
-    order = np.argsort(s)
-    s = s[order]
-    lat = lat[order]
-
-    # Guard against zero / duplicate spacing which would divide by zero.
-    ds = np.diff(s)
-    if np.any(ds <= 0):
-        # Fall back to a uniform spacing assumption.
-        ds = np.full(n - 1, 1.0)
-
-    # Second derivative via finite differences.
-    # Interior:  central difference  d²lat/ds² ≈ (lat[i+1] - 2*lat[i] + lat[i-1]) / (ds[i]*ds[i-1])
-    # Boundary:  one-sided difference using the adjacent three points.
-    curvature = np.zeros(n, dtype=np.float64)
-
-    # Interior points (central difference).
-    for i in range(1, n - 1):
-        h_prev = ds[i - 1]
-        h_next = ds[i]
-        curvature[i] = (
-            2.0
-            * (
-                lat[i - 1] / (h_prev * (h_prev + h_next))
-                - lat[i] / (h_prev * h_next)
-                + lat[i + 1] / (h_next * (h_prev + h_next))
-            )
-        )
-
-    # Boundary points: use a one-sided second difference.
-    # Forward difference at the start.
-    h0, h1 = ds[0], ds[1]
-    curvature[0] = (
-        2.0
-        * (
-            lat[0] / (h0 * (h0 + h1))
-            - lat[1] / (h0 * h1)
-            + lat[2] / (h1 * (h0 + h1))
-        )
-    )
-    # Backward difference at the end.
-    hm1, hm2 = ds[n - 2], ds[n - 3]
-    curvature[n - 1] = (
-        2.0
-        * (
-            lat[n - 3] / (hm2 * (hm1 + hm2))
-            - lat[n - 2] / (hm1 * hm2)
-            + lat[n - 1] / (hm1 * (hm1 + hm2))
-        )
-    )
-
-    return curvature
+def dynamic_lookahead_m(speed_mps: float) -> float:
+    """lookahead_distance = max(MIN_LA, speed_mps × LOOKAHEAD_TIME)."""
+    return max(LOOKAHEAD_MIN_M, speed_mps * LOOKAHEAD_TIME_S)
 
 
 def smooth_path_lat(
@@ -234,12 +111,12 @@ def get_reference_path_quintic(
 ) -> List[Tuple[float, float]]:
     """
     Generate reference path using quintic polynomial for smooth trajectories.
-
+    
     Quintic polynomial (5th order) provides:
     - Continuous position, velocity, acceleration
     - Smoother curvature
     - Better passenger comfort
-
+    
     Boundary conditions:
     - Initial: y(0) = cte_m, y'(0) = tan(head_rad) ≈ head_rad, y''(0) = curv
     - Final: y(T) = 0 (lane center), y'(T) = 0 (aligned), y''(T) = 0 (straight)
@@ -280,7 +157,7 @@ def get_reference_path(
 ) -> List[Tuple[float, float]]:
     """
     Generate reference path in vehicle frame from current state.
-
+    
     Args:
         cte_m: Cross-track error (m)
         head_rad: Heading error (rad)
@@ -288,7 +165,7 @@ def get_reference_path(
         lookahead_m: Lookahead distance (m)
         num_pts: Number of points
         use_quintic: Use quintic polynomial (smoother) vs parabolic (faster)
-
+    
     Returns:
         List of (s_m, lateral_m) path points
     """

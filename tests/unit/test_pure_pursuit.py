@@ -125,7 +125,7 @@ class TestComputeSteering:
     def test_smoothing_reduces_jitter(self):
         """Successive calls should smooth steering transitions."""
         c = PurePursuitController()
-        c.compute_steering(cte=1.0, heading_err=0.0, speed_ms=10.0)
+        s1 = c.compute_steering(cte=1.0, heading_err=0.0, speed_ms=10.0)
         s2 = c.compute_steering(cte=-1.0, heading_err=0.0, speed_ms=10.0)
         # s2 should be less extreme than raw due to smoothing
         raw_s2 = math.atan(2.0 * c.L * (-1.0) / (c.compute_lookahead(10.0) ** 2))
