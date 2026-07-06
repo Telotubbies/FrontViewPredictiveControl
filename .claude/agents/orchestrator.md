@@ -39,22 +39,26 @@ FrontViewPredictiveControl/
 │   ├── state.py             # FrameState dataclass
 │   ├── alg/                 # lka_step.py, reference.py, fusion.py
 │   ├── control/             # lane_mpc.py, pure_pursuit.py
-│   ├── perception/          # lane_trajectory.py, lane_detector.py, bev_lane_pipeline.py, spline_lane_fitting.py, kalman_lane_tracker.py, ego_lane_mask.py, ego_lane_tracker.py, road_perception.py, classical/, unet/
+│   ├── perception/          # lane_trajectory.py, lane_detector.py, bev_lane_pipeline.py, spline_lane_fitting.py, kalman_lane_tracker.py, ego_lane_mask.py, ego_lane_tracker.py, road_perception.py, classical/detector.py
 │   ├── safety/              # override.py, stuck_recovery.py
 │   ├── core/                # carla_interface.py, mpc_runner.py
 │   ├── managers/            # control_manager.py, perception_manager.py, carla_manager.py, display_manager.py
 │   ├── gui/                 # dashboard.py, adas_dashboard.py, main_window.py, panels/
 │   ├── temporal/            # lane_lstm.py
-│   ├── bridge/              # obstacles.py, transforms.py
+│   ├── bridge/              # obstacles.py, transforms.py (CARLA ↔ internal types)
 │   └── utils/               # type_hints.py, device_utils.py
 ├── tests/
 │   ├── conftest.py
-│   ├── unit/                # test_lane_mpc.py, test_reference.py, test_override.py, test_stuck_recovery.py, test_spline_lane_fitting.py
+│   ├── unit/                # test_lane_mpc.py, test_reference.py, test_override.py, test_stuck_recovery.py,
+│   │                        # test_spline_lane_fitting.py, test_pure_pursuit.py, test_fusion.py,
+│   │                        # test_kalman_lane_tracker.py, test_config.py, test_state.py, test_type_hints.py,
+│   │                        # test_safety_override.py, test_improved_lane_fitting.py, test_pipeline.py,
+│   │                        # test_basic_functionality.py, test_config_only.py
 │   └── integration/         # test_integration.py, test_carla_io.py, test_carla_manager.py, test_display_manager.py, test_dash_detection_20.py, test_unet_lane.py
 ├── dsunet_training/
 ├── scripts/
 ├── docs/
-├── agent/                   # subagent team definitions (reference)
+├── .claude/agents/          # subagent team definitions (this directory)
 ├── .github/workflows/ci.yml
 ├── STANDARDS.md             # coding standards + naming conventions
 └── WORKLOG.md               # บันทึกการเปลี่ยนแปลง
@@ -91,7 +95,7 @@ FrontViewPredictiveControl/
   โดยตรง — ถ้างานคาบเกี่ยว interface (เช่น src/state.py, config/default.yaml) ให้ทั้งคู่
   coordinate ผ่านคุณ
 - ทุกครั้งที่มีการเปลี่ยน parameter ใน config/default.yaml (MPC_DT, MPC_MAX_STEER,
-  MPC_V_REF, MPC_W_CTE, BEV_W/H ฯลฯ) ให้ tech-lead ตรวจว่ามีที่อื่นใน repo
+  MPC_W_CTE, BEV_W/H ฯลฯ) ให้ tech-lead ตรวจว่ามีที่อื่นใน repo
   hardcode ค่าเดิมซ้ำหรือไม่
 - อ้างอิง `STANDARDS.md` สำหรับ naming conventions, import rules, commit format
 - อ้างอิง `WORKLOG.md` สำหรับประวัติการเปลี่ยนแปลง

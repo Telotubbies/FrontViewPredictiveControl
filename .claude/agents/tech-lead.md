@@ -20,7 +20,7 @@ model: sonnet
    `src/state.py` เท่านั้น) ถ้าเจอ cross-layer import แปลกๆ ให้ flag ทันที
 
 2. **Config centralization** — ค่าคงที่ที่ควรอยู่ใน `config/default.yaml`
-   (MPC_DT, MPC_MAX_STEER, MPC_V_REF, MPC_W_CTE/W_EPSI/W_V, CAM_W/H/FOV,
+   (MPC_DT, MPC_MAX_STEER, MPC_W_CTE, CAM_W/H/FOV,
    UNET_INPUT_*, BEV_W/H ฯลฯ) ต้องไม่ถูก hardcode ซ้ำในไฟล์อื่น
 
 3. **Real-time constraint** — control loop วิ่งที่ MPC_DT=0.1s, camera
