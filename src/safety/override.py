@@ -13,9 +13,11 @@ from dataclasses import dataclass
 logger = logging.getLogger(__name__)
 
 try:
-    from config import SAFETY_MAX_STEER_RAD
+    from config import SAFETY_MAX_STEER_RAD, SAFETY_CTE_LIMIT_M, SAFETY_CTE_MAX_SPEED_REDUCTION
 except ImportError:
     SAFETY_MAX_STEER_RAD = 0.45
+    SAFETY_CTE_LIMIT_M = 2.0
+    SAFETY_CTE_MAX_SPEED_REDUCTION = 0.5
 
 
 @dataclass
@@ -239,9 +241,9 @@ class SafetyOverride:
         # Get CTE from vehicle state
         current_cte = vehicle_state.get('cte', 0.0)
 
-        # CTE limit configuration
-        cte_limit = 2.0  # meters
-        max_speed_reduction = 0.5  # Reduce speed by up to 50%
+        # CTE limit configuration (from config)
+        cte_limit = SAFETY_CTE_LIMIT_M
+        max_speed_reduction = SAFETY_CTE_MAX_SPEED_REDUCTION
 
         if abs(current_cte) > cte_limit:
             # CTE exceeds limit - reduce speed to allow correction

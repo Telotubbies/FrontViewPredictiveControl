@@ -11,6 +11,7 @@ Refactored main module that provides clean entry point for:
 
 import argparse
 import logging
+import math
 import queue
 import sys
 import time
@@ -26,13 +27,15 @@ setup_carla_paths()
 
 # Import core modules
 from core.carla_interface import CarlaInterface
-from core.mpc_runner import MPCRunner
 from gui.dashboard import Dashboard
 
 # Import system components
 from pipeline import LKAPipeline
 from safety.override import SafetyOverride
 from safety.stuck_recovery import StuckRecovery
+from safety.aeb_acc import AEBACC
+from bridge.obstacles import get_traffic_obstacles
+from carla_io import get_waypoints, waypoints_to_cte_heading
 from config import (
     TARGET_SPEED_KMH, USE_TRAJECTORY_PIPELINE,
     CONTROL_HZ, MAIN_LOOP_SLEEP_S
@@ -58,9 +61,13 @@ class CARLAMPCSystem:
         self.carla: Optional[CarlaInterface] = None
         self.dashboard: Optional[Dashboard] = None
         self.pipeline: Optional[LKAPipeline] = None
-        self.mpc_runner: Optional[MPCRunner] = None
         self.safety: Optional[SafetyOverride] = None
         self.stuck_recovery: Optional[StuckRecovery] = None
+        self.aeb_acc: Optional[AEBACC] = None
+
+        # Control state (persisted between frames for smoothing)
+        self._prev_steer = 0.0
+        self._prev_throttle = 0.0
 
         # Device setup
         self.device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
@@ -68,6 +75,7 @@ class CARLAMPCSystem:
         # System state
         self.running = False
         self.frame_count = 0
+        self._loop_times = []
 
     def initialize(self) -> bool:
         """Initialize all system components"""
@@ -104,16 +112,13 @@ class CARLAMPCSystem:
             logger.info(f"Pipeline initialized: {'Classical' if self.use_classical else 'UNet'}")
 
             # Initialize safety systems
-            self.safety = SafetyOverride()
+            self.safety = SafetyOverride({
+                "max_speed_kmh": self.target_speed_kmh + 5.0,
+                "max_steering_angle": 0.45,
+                "emergency_brake_enabled": True,
+            })
             self.stuck_recovery = StuckRecovery()
-
-            # Initialize MPC runner
-            self.mpc_runner = MPCRunner(
-                mpc_controller=self.pipeline._mpc if hasattr(self.pipeline, '_mpc') else None,
-                safety_system=self.safety,
-                perception_pipeline=self.pipeline,
-                target_speed_kmh=self.target_speed_kmh
-            )
+            self.aeb_acc = AEBACC()
 
             logger.info("System initialization completed")
             return True
@@ -160,82 +165,144 @@ class CARLAMPCSystem:
             # Start camera
             self.carla.camera.listen(camera_callback)
 
-            # Start MPC runner
-            with self.mpc_runner:
-                # Main control loop
-                while self.running:
-                    loop_start_time = time.time()
+            # Main control loop (no MPCRunner — use LKAPipeline.step() directly)
+            while self.running:
+                loop_start_time = time.time()
 
-                    # Handle GUI events
-                    if self.dashboard:
-                        if not self.dashboard.handle_events():
-                            break
+                # Handle GUI events
+                if self.dashboard:
+                    if not self.dashboard.handle_events():
+                        break
 
-                    # Get RGB frame
-                    current_frame = None
-                    try:
-                        current_frame = camera_queue.get(timeout=0.1)
-                    except queue.Empty:
-                        if rgb_frame is not None:
-                            current_frame = rgb_frame
-                        else:
-                            continue
-
-                    # Get vehicle state
-                    vehicle_transform = self.carla.get_vehicle_transform()
-                    current_speed_ms = self.carla.get_vehicle_velocity()
-
-                    if vehicle_transform is None:
+                # Get RGB frame
+                current_frame = None
+                try:
+                    current_frame = camera_queue.get(timeout=0.1)
+                except queue.Empty:
+                    if rgb_frame is not None:
+                        current_frame = rgb_frame
+                    else:
                         continue
 
-                    # Run control step
-                    control_state, perception_result = self.mpc_runner.step(
-                        current_frame, current_speed_ms, vehicle_transform
-                    )
+                # Get vehicle state
+                vehicle_transform = self.carla.get_vehicle_transform()
+                current_speed_ms = self.carla.get_vehicle_velocity()
 
-                    # Apply control to vehicle
+                if vehicle_transform is None:
+                    continue
+
+                # Get waypoint state for fusion (WP primary)
+                wp_state = None
+                try:
+                    wps = get_waypoints(self.carla.vehicle, self.carla.world.get_map())
+                    if wps:
+                        wp_state = waypoints_to_cte_heading(vehicle_transform, wps)
+                except Exception:
+                    pass
+
+                # Run pipeline step: perception → fusion → MPC → safety
+                steer, throttle, brake, frame_state = self.pipeline.step(
+                    rgb=current_frame,
+                    speed_ms=current_speed_ms,
+                    wp_state=wp_state,
+                    prev_steer=self._prev_steer,
+                    prev_throttle=self._prev_throttle,
+                )
+
+                # ── AEB + ACC ──────────────────────────────────────────────
+                aeb_brake_override = 0.0
+                acc_target_speed = self.target_speed_kmh / 3.6
+                try:
+                    obstacles = get_traffic_obstacles(
+                        self.carla.world,
+                        exclude_actor_id=self.carla.vehicle.id,
+                    )
+                    ego_loc = vehicle_transform.location
+                    ego_rot = vehicle_transform.rotation
+                    ego_heading = math.radians(ego_rot.yaw)
+
+                    # ACC: adjust target speed
+                    acc_result = self.aeb_acc.check_acc(
+                        obstacles,
+                        ego_x=ego_loc.x, ego_y=ego_loc.y,
+                        ego_heading=ego_heading,
+                        ego_speed=current_speed_ms,
+                        nominal_target_ms=self.target_speed_kmh / 3.6,
+                    )
+                    if acc_result.active and acc_result.target_speed_ms < acc_target_speed:
+                        acc_target_speed = acc_result.target_speed_ms
+
+                    # AEB: emergency brake override
+                    aeb_result = self.aeb_acc.check_aeb(
+                        obstacles,
+                        ego_x=ego_loc.x, ego_y=ego_loc.y,
+                        ego_heading=ego_heading,
+                        ego_speed=current_speed_ms,
+                    )
+                    if aeb_result.active:
+                        aeb_brake_override = aeb_result.brake_override
+                except Exception as e:
+                    logger.debug(f"AEB/ACC check skipped: {e}")
+
+                # Apply AEB override (highest priority)
+                if aeb_brake_override > brake:
+                    brake = aeb_brake_override
+                    throttle = 0.0
+                    logger.warning("AEB active: brake=%.2f", brake)
+
+                # Apply control to vehicle
+                carla_control = self.carla.get_vehicle_control()
+                carla_control.steering = steer
+                carla_control.throttle = throttle
+                carla_control.brake = brake
+                self.carla.apply_control(carla_control)
+
+                # Persist control state for next frame's smoothing
+                self._prev_steer = steer
+                self._prev_throttle = throttle
+
+                # Check for stuck recovery
+                recovery = self.stuck_recovery.update(current_speed_ms, throttle)
+                if recovery is not None:
+                    r_steer, r_throttle, r_brake, r_reverse = recovery
                     carla_control = self.carla.get_vehicle_control()
-                    carla_control.steering = control_state.steering
-                    carla_control.throttle = control_state.throttle
-                    carla_control.brake = control_state.brake
+                    carla_control.steering = r_steer
+                    carla_control.throttle = r_throttle
+                    carla_control.brake = r_brake
+                    carla_control.reverse = r_reverse
                     self.carla.apply_control(carla_control)
+                    logger.info("Applying stuck recovery (phase=%s)", self.stuck_recovery._phase)
 
-                    # Check for stuck recovery
-                    recovery = self.stuck_recovery.update(
-                        current_speed_ms, control_state.throttle
+                # Update dashboard
+                if self.dashboard:
+                    self._update_dashboard(
+                        current_frame, frame_state, current_speed_ms,
+                        steer, throttle, brake,
                     )
-                    if recovery is not None:
-                        r_steer, r_throttle, r_brake, r_reverse = recovery
-                        carla_control = self.carla.get_vehicle_control()
-                        carla_control.steering = r_steer
-                        carla_control.throttle = r_throttle
-                        carla_control.brake = r_brake
-                        carla_control.reverse = r_reverse
-                        self.carla.apply_control(carla_control)
-                        logger.info("Applying stuck recovery (phase=%s)", self.stuck_recovery._phase)
 
-                    # Update dashboard
-                    if self.dashboard and self.frame_count % 1 == 0:
-                        self._update_dashboard(
-                            current_frame, control_state, perception_result, current_speed_ms
-                        )
+                # Update frame counter
+                self.frame_count += 1
 
-                    # Update frame counter
-                    self.frame_count += 1
+                # Maintain control frequency
+                loop_time = time.time() - loop_start_time
+                self._loop_times.append(loop_time)
+                target_loop_time = 1.0 / CONTROL_HZ
+                sleep_time = max(0, target_loop_time - loop_time - MAIN_LOOP_SLEEP_S)
 
-                    # Maintain control frequency
-                    loop_time = time.time() - loop_start_time
-                    target_loop_time = 1.0 / CONTROL_HZ
-                    sleep_time = max(0, target_loop_time - loop_time - MAIN_LOOP_SLEEP_S)
+                if sleep_time > 0:
+                    time.sleep(sleep_time)
 
-                    if sleep_time > 0:
-                        time.sleep(sleep_time)
-
-                    # Log performance periodically
-                    if self.frame_count % 100 == 0:
-                        metrics = self.mpc_runner.get_performance_metrics()
-                        logger.info(f"Performance: FPS={metrics.get('fps', 0):.1f}, "
-                                  f"Control={metrics.get('control_time_mean', 0)*1000:.1f}ms")
+                # Log performance periodically
+                if self.frame_count % 100 == 0:
+                    avg_loop = np.mean(self._loop_times[-100:]) if self._loop_times else 0.0
+                    fps = 1.0 / avg_loop if avg_loop > 0 else 0.0
+                    aeb_status = self.aeb_acc.get_status()
+                    logger.info(
+                        "Performance: FPS=%.1f, loop=%.1fms, AEB=%s, ACC=%s",
+                        fps, avg_loop * 1000,
+                        "ACTIVE" if aeb_status['aeb_active'] else "idle",
+                        "ACTIVE" if aeb_status['acc_active'] else "idle",
+                    )
 
             return 0
 
@@ -250,37 +317,39 @@ class CARLAMPCSystem:
 
     def _update_dashboard(self,
                          rgb_frame: np.ndarray,
-                         control_state,
-                         perception_result,
-                         current_speed_ms: float):
+                         frame_state,
+                         current_speed_ms: float,
+                         steer: float,
+                         throttle: float,
+                         brake: float):
         """Update dashboard display"""
         try:
             # Clear panel
             self.dashboard.panel_surface.fill((0, 0, 0))
 
             # Render camera frame with lane overlay
-            if perception_result and hasattr(perception_result, 'lane_overlay'):
-                self.dashboard.render_lane_overlay(rgb_frame, perception_result.lane_overlay)
+            if frame_state and frame_state.lane_overlay is not None:
+                self.dashboard.render_lane_overlay(rgb_frame, frame_state.lane_overlay)
             else:
                 self.dashboard.render_lane_overlay(rgb_frame)
 
             # Render BEV view if available
-            if perception_result and hasattr(perception_result, 'bev_binary'):
-                self.dashboard.render_bev_view(perception_result.bev_binary)
+            if frame_state and frame_state.bev_binary is not None:
+                self.dashboard.render_bev_view(frame_state.bev_binary)
 
             # Render status info
             speed_kmh = current_speed_ms * 3.6
-            confidence = perception_result.confidence if perception_result else 0.0
-            cte = perception_result.cte if perception_result else 0.0
-            fps = self.mpc_runner.fps_history[-1] if self.mpc_runner.fps_history else 0.0
+            confidence = frame_state.lane_conf if frame_state else 0.0
+            cte = frame_state.cte_m if frame_state else 0.0
+            fps = 1.0 / self._loop_times[-1] if self._loop_times else 0.0
 
             self.dashboard.render_status_info(
-                speed_kmh, control_state.steering, cte, confidence, fps
+                speed_kmh, steer, cte, confidence, fps
             )
 
             # Render control info
             self.dashboard.render_control_info(
-                control_state.throttle, control_state.brake, self.target_speed_kmh
+                throttle, brake, self.target_speed_kmh
             )
 
             # Update display

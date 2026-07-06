@@ -184,3 +184,5 @@ runtime:
 # ── Safety ──────────────────────────────────────────────────────────────────
 safety:
   SAFETY_MAX_STEER_RAD: 0.40  # ลดจาก 0.45 (23° แทน 25.8°)
+  SAFETY_CTE_LIMIT_M: 2.0     # CTE ที่เริ่ม intervention (m)
+  SAFETY_CTE_MAX_SPEED_REDUCTION: 0.5  # ลด throttle สูงสุด 50% เมื่อ CTE เกิน

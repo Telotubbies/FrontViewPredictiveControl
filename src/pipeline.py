@@ -146,7 +146,6 @@ class LKAPipeline:
             head_s = float(out.heading_err)
             curv_s = float(out.curvature)
             lane_conf = float(out.confidence)
-            bool(out.waypoint_only)
             geometry_valid = bool(out.geometry_valid)
             v_ref_traj = float(out.v_ref_at_ego)
             lane_overlay = out.lane_overlay
