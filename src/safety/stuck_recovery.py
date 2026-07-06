@@ -4,6 +4,7 @@ Stuck vehicle detection and recovery (brake → reverse → forward).
 Used when the vehicle is stationary with throttle applied for an extended period.
 """
 import logging
+from math import sin
 from typing import Optional, Tuple
 
 logger = logging.getLogger(__name__)
@@ -19,6 +20,8 @@ class StuckRecovery:
     COOLDOWN_AFTER_RECOVERY = 100
     BRAKE_FRAMES = 12
     REVERSE_FRAMES = 40
+    MAX_RECOVERY_ATTEMPTS = 3
+    PROGRESS_SPEED_MS = 0.5
 
     def __init__(self) -> None:
         self._n = 0
@@ -27,6 +30,7 @@ class StuckRecovery:
         self._counter = 0
         self.just_recovered = False
         self._cooldown = 0
+        self._recovery_count = 0
 
     def update(
         self, speed: float, throttle: float
@@ -49,19 +53,41 @@ class StuckRecovery:
             else:
                 self._n = max(0, self._n - 1)
                 self._confirm = 0
+            # Reset recovery counter when meaningful progress is made
+            if speed > self.PROGRESS_SPEED_MS:
+                self._recovery_count = 0
             if self._confirm >= self.STUCK_CONFIRM_FRAMES:
+                if self._recovery_count >= self.MAX_RECOVERY_ATTEMPTS:
+                    self._phase = "safe_stop"
+                    self._counter = 0
+                    self._n = 0
+                    self._confirm = 0
+                    logger.error(
+                        "STUCK -> SAFE_STOP after %d recovery attempts "
+                        "without progress",
+                        self._recovery_count,
+                    )
+                    return 0.0, 0.0, 1.0, False
+                self._recovery_count += 1
                 self._phase = "brake"
                 self._counter = 0
                 self._n = 0
                 self._confirm = 0
                 self._cooldown = self.COOLDOWN_AFTER_RECOVERY
                 logger.warning(
-                    "STUCK -> recovering (spd=%.2f thr=%.2f)", speed, throttle
+                    "STUCK -> recovering (spd=%.2f thr=%.2f attempt=%d)",
+                    speed,
+                    throttle,
+                    self._recovery_count,
                 )
             else:
                 return None
 
         self._counter += 1
+
+        if self._phase == "safe_stop":
+            # Full brake, no throttle — give up after exhausting recovery attempts
+            return 0.0, 0.0, 1.0, False
 
         if self._phase == "brake":
             if self._counter < self.BRAKE_FRAMES:
@@ -71,7 +97,8 @@ class StuckRecovery:
 
         if self._phase == "reverse":
             if self._counter < self.REVERSE_FRAMES:
-                return -0.2, 0.4, 0.0, True
+                steer = 0.3 * sin(self._counter * 0.3)
+                return steer, 0.4, 0.0, True
             self._phase = "forward"
             self._counter = 0
 
@@ -91,3 +118,12 @@ class StuckRecovery:
             speed_ms < self.STUCK_SPEED_MS and
             self._n >= self.STUCK_THRESHOLD
         )
+
+    def get_status(self) -> dict:
+        """Return current recovery status as a dict."""
+        return {
+            "phase": self._phase,
+            "recovery_count": self._recovery_count,
+            "stuck_frames": self._n,
+            "just_recovered": self.just_recovered,
+        }

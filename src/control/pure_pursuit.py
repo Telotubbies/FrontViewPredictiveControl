@@ -36,10 +36,24 @@ class PurePursuitController:
         self._prev_steer = 0.0
         self._alpha = 0.5  # EMA smoothing factor - increased for faster response
 
-    def compute_lookahead(self, speed_ms: float) -> float:
-        """Compute speed-dependent lookahead distance."""
+        # Debug info (updated during compute_steering)
+        self.last_lookahead = 0.0
+        self.last_target_y = 0.0
+        self.last_raw_steer = 0.0
+        self.last_smoothed_steer = 0.0
+
+    def compute_lookahead(self, speed_ms: float, curvature: float = 0.0) -> float:
+        """Compute speed-dependent lookahead distance.
+
+        Applies curvature-adaptive reduction: when |curvature| > 0.02 the
+        maximum lookahead is reduced by 30% so sharper curves use a shorter
+        lookahead for better tracking.
+        """
+        max_ld = self.max_ld
+        if abs(curvature) > 0.02:
+            max_ld = self.max_ld * 0.7
         ld = self.ld_gain * speed_ms
-        return max(self.min_ld, min(self.max_ld, ld))
+        return max(self.min_ld, min(max_ld, ld))
 
     def compute_steering(
         self,
@@ -60,7 +74,16 @@ class PurePursuitController:
         Returns:
             Steering angle in radians
         """
-        ld = self.compute_lookahead(speed_ms)
+        ld = self.compute_lookahead(speed_ms, curvature)
+
+        # Speed-dependent steering smoothing alpha:
+        # low speed (< 3 m/s) -> responsive (0.3), high speed (> 15 m/s) -> smooth (0.8)
+        if speed_ms < 3.0:
+            alpha = 0.3
+        elif speed_ms > 15.0:
+            alpha = 0.8
+        else:
+            alpha = self._alpha
 
         # Target point in vehicle frame
         # x = lookahead distance ahead
@@ -82,11 +105,29 @@ class PurePursuitController:
         # Clamp steering
         steer = max(-self.max_steer, min(self.max_steer, steer))
 
+        # Store raw (pre-smoothing) steer for debugging
+        raw_steer = steer
+
         # Smooth steering
-        steer = self._alpha * steer + (1 - self._alpha) * self._prev_steer
+        steer = alpha * steer + (1 - alpha) * self._prev_steer
         self._prev_steer = steer
 
+        # Store debug info
+        self.last_lookahead = ld
+        self.last_target_y = target_y
+        self.last_raw_steer = raw_steer
+        self.last_smoothed_steer = steer
+
         return steer
+
+    def get_debug_info(self) -> dict:
+        """Return debug info from the last compute_steering call."""
+        return {
+            "last_lookahead": self.last_lookahead,
+            "last_target_y": self.last_target_y,
+            "last_raw_steer": self.last_raw_steer,
+            "last_smoothed_steer": self.last_smoothed_steer,
+        }
 
     def steer_to_carla(self, steer_rad: float) -> float:
         """Convert steering angle to CARLA control [-1, 1]."""

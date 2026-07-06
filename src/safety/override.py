@@ -29,6 +29,7 @@ class SafetyConfig:
     max_steering_angle: float = 0.5
     collision_timeout: float = 5.0
     emergency_deceleration: float = -5.0  # m/s²
+    max_steer_rate: float = 0.1
 
 
 class SafetyOverride:
@@ -59,6 +60,7 @@ class SafetyOverride:
         # State tracking
         self.last_safety_override = None
         self.override_count = 0
+        self._prev_steer = 0.0
 
         logger.info("✅ SafetyOverride initialized")
         logger.info(f"  - Emergency brake: {self.config.emergency_brake_enabled}")
@@ -101,6 +103,35 @@ class SafetyOverride:
             if speed_kmh < -0.1:  # Negative speed is invalid
                 logger.warning(f"⚠️  Invalid negative speed: {speed_kmh:.1f} km/h")
                 return throttle, min(brake, 0.5)  # Reduce brake if negative
+
+        return throttle, brake
+
+    def check_throttle_brake_conflict(
+        self,
+        throttle: float,
+        brake: float
+    ) -> Tuple[float, float]:
+        """
+        Check for throttle/brake conflict.
+
+        If both throttle and brake are applied simultaneously, brake wins
+        for safety and throttle is zeroed.
+
+        Args:
+            throttle: Proposed throttle value
+            brake: Proposed brake value
+
+        Returns:
+            (throttle, brake) with conflict resolved
+        """
+        if throttle > 0.1 and brake > 0.1:
+            logger.warning(
+                f"⚠️  THROTTLE/BRAKE CONFLICT: throttle={throttle:.3f}, "
+                f"brake={brake:.3f} - brake wins, throttle zeroed"
+            )
+            self.override_count += 1
+            self.last_safety_override = 'throttle_brake_conflict'
+            return 0.0, brake
 
         return throttle, brake
 
@@ -215,6 +246,22 @@ class SafetyOverride:
         throttle, brake = self.check_speed_limit(
             vehicle_state, throttle, brake
         )
+
+        # Step 5: Check throttle/brake conflict
+        throttle, brake = self.check_throttle_brake_conflict(throttle, brake)
+
+        # Step 6: Jerk limiting (steering change rate)
+        max_rate = self.config.max_steer_rate
+        steer_delta = steering - self._prev_steer
+        if abs(steer_delta) > max_rate:
+            steering = self._prev_steer + np.clip(steer_delta, -max_rate, max_rate)
+            logger.warning(
+                f"⚠️  STEER RATE LIMITED: delta={steer_delta:.3f} > {max_rate:.3f}, "
+                f"clamped to {steering:.3f}"
+            )
+            self.override_count += 1
+            self.last_safety_override = 'steer_rate_limit'
+        self._prev_steer = steering
 
         return steering, throttle, brake
 
