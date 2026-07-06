@@ -21,7 +21,6 @@ Constraints:
 """
 
 import logging
-import math
 import numpy as np
 import casadi as ca
 from dataclasses import dataclass
@@ -104,8 +103,6 @@ class LaneMPC:
             ub_g.append(0.0)
 
         v_ref = P[4]
-        cte_init = P[5]
-        heading_init = P[6]
         curvature = P[7]
         u_prev = P[8:10]
 
@@ -169,7 +166,6 @@ class LaneMPC:
 
         # Variable bounds
         n_x_vars = n_states * (N + 1)
-        n_u_vars = n_controls * N
         lb_x = [-1e6] * n_x_vars
         ub_x = [1e6] * n_x_vars
 

@@ -255,7 +255,7 @@ def sliding_window_bev(bev_dilated, bev_prob, bot_start_x, top_start_x,
 
     try:
         coeffs = np.polyfit(rows, cols, POLY_ORDER)
-    except:
+    except Exception:
         return None, [], n_active, None
 
     # Return actual merged centers (not polynomial-generated)
@@ -356,25 +356,25 @@ def constrain_bev_pair(left_coeffs, right_coeffs, left_x, right_x,
 
 def draw_bev_overlay(bgr, left_coeffs, right_coeffs, left_wins=None, right_wins=None):
     """Draw lane overlay using actual window centers (not polynomial).
-    
+
     This ensures green fill matches the dots exactly.
     """
     h, w = bgr.shape[:2]
     vis = bgr.copy()
 
     bev_overlay = np.zeros((BEV_H, BEV_W, 3), dtype=np.uint8)
-    
+
     # Use actual window centers for drawing (not polynomial)
     left_pts_bev = []
     right_pts_bev = []
-    
+
     if left_wins and len(left_wins) >= 2:
         # Sort by row (top to bottom)
         left_sorted = sorted(left_wins, key=lambda x: x[0])
         left_pts_bev = [(int(c), int(r)) for r, c in left_sorted]
         pts = np.array(left_pts_bev, dtype=np.int32)
         cv2.polylines(bev_overlay, [pts], False, (255, 0, 0), 4)
-    
+
     if right_wins and len(right_wins) >= 2:
         right_sorted = sorted(right_wins, key=lambda x: x[0])
         right_pts_bev = [(int(c), int(r)) for r, c in right_sorted]
@@ -388,10 +388,10 @@ def draw_bev_overlay(bgr, left_coeffs, right_coeffs, left_wins=None, right_wins=
         fill = bev_overlay.copy()
         cv2.fillPoly(fill, [poly_pts], (0, 180, 0))
         cv2.addWeighted(fill, 0.5, bev_overlay, 0.5, 0, bev_overlay)
-        
+
         # Draw centerline
         if len(left_pts_bev) == len(right_pts_bev):
-            center_pts = [((l[0]+r[0])//2, (l[1]+r[1])//2) for l, r in zip(left_pts_bev, right_pts_bev)]
+            center_pts = [((lp[0]+rp[0])//2, (lp[1]+rp[1])//2) for lp, rp in zip(left_pts_bev, right_pts_bev)]
             if len(center_pts) >= 2:
                 cv2.polylines(bev_overlay, [np.array(center_pts, dtype=np.int32)], False, (0, 255, 0), 2)
 
@@ -461,7 +461,7 @@ def process_frame(model, rgb: np.ndarray, frame_idx: int = 0, label: str = ""):
         # Sort by row (top to bottom)
         sorted_wins = sorted(wins, key=lambda x: x[0])
         rows = [r for r, c in sorted_wins]
-        
+
         # First draw actual window centers (these match green fill exactly)
         for r, c in sorted_wins:
             pt = np.array([[[c, r]]], dtype=np.float32)
@@ -469,12 +469,12 @@ def process_frame(model, rgb: np.ndarray, frame_idx: int = 0, label: str = ""):
             px, py = int(pt_persp[0]), int(pt_persp[1])
             if 0 <= px < w and 0 <= py < h:
                 cv2.circle(vis_overlay, (px, py), 5, color, -1)
-        
+
         # Then extend 30% upward using polynomial (beyond detected range)
         row_min = min(rows)
         row_range = max(rows) - row_min
         extended_min = max(0, row_min - int(row_range * extend_pct))
-        
+
         if coeffs is not None and extended_min < row_min:
             ext_rows = np.linspace(extended_min, row_min, 15)
             ext_cols = np.polyval(coeffs, ext_rows)
@@ -485,7 +485,7 @@ def process_frame(model, rgb: np.ndarray, frame_idx: int = 0, label: str = ""):
                     px, py = int(pt_persp[0]), int(pt_persp[1])
                     if 0 <= px < w and 0 <= py < h:
                         cv2.circle(vis_overlay, (px, py), 4, color, -1)
-    
+
     draw_extended_lane_dots(left_wins, left_coeffs, (255, 100, 0))
     draw_extended_lane_dots(right_wins, right_coeffs, (0, 100, 255))
 
@@ -521,7 +521,8 @@ def main():
     print(f"Model loaded on {model.device}")
 
     if live:
-        import carla, queue as Q
+        import carla
+        import queue as Q
         client = carla.Client("127.0.0.1", 2000)
         client.set_timeout(10)
         # Use Town04 for highway curves

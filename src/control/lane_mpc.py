@@ -21,7 +21,6 @@ Constraints:
 """
 
 import logging
-import math
 from typing import Optional
 
 import numpy as np
@@ -59,7 +58,7 @@ def get_mpc_weights(
 ) -> tuple[float, float, float, float]:
     """
     Return (scale_cte, scale_heading, scale_steer_rate, scale_jerk) for MPC.
-    
+
     Based on research: "Weight Adaptive Path Tracking Control for Autonomous Vehicles"
     - In curves: INCREASE lateral error weight (λy) for better tracking accuracy
     - High speed: INCREASE lateral error weight to compensate for inertia lag
@@ -69,25 +68,25 @@ def get_mpc_weights(
     confidence = float(np.clip(confidence, 0.0, 1.0))
     speed_norm = min(1.0, max(0.0, speed_ms / max(MPC_WEIGHTS_HIGH_SPEED_MS, 0.1)))
     abs_curv = abs(curvature)
-    
+
     # Curve factor: 0 = straight, 1 = sharp curve (curvature > 0.02)
     curve_factor = min(1.0, abs_curv * 50.0)
-    
+
     # Research finding: In curves, INCREASE CTE weight for tracking accuracy
     # Also increase with speed to compensate for inertia
     scale_cte = 1.0 + 1.2 * curve_factor + 0.5 * speed_norm
-    
+
     # Heading: important in curves but not as critical as CTE
     scale_heading = 1.0 + 0.8 * curve_factor + 0.3 * speed_norm
-    
+
     # Steer rate: reduce penalty in curves to allow faster steering response
     # Research: reducing λu improves tracking but may cause jitter
     scale_steer_rate = 1.0 + 0.4 * (1.0 - confidence) - 0.4 * curve_factor
     scale_steer_rate = max(0.4, scale_steer_rate)
-    
+
     # Jerk: keep moderate to avoid oscillation
     scale_jerk = 1.0 + 0.3 * (1.0 - confidence)
-    
+
     return (scale_cte, scale_heading, scale_steer_rate, scale_jerk)
 
 
@@ -181,8 +180,6 @@ class LaneMPC:
             ub_g.append(0.0)
 
         v_ref = P[4]
-        cte_init = P[5]
-        heading_init = P[6]
         curvature = P[7]
         u_prev = P[8:10]
         scale_cte = P[10]
@@ -255,7 +252,6 @@ class LaneMPC:
 
         # Variable bounds
         n_x_vars = n_states * (N + 1)
-        n_u_vars = n_controls * N
         lb_x = [-1e6] * n_x_vars
         ub_x = [1e6] * n_x_vars
 

@@ -11,7 +11,6 @@ from __future__ import annotations
 import math
 from typing import Tuple
 
-import numpy as np
 
 
 def carla_location_to_enu(x: float, y: float, z: float) -> Tuple[float, float, float]:

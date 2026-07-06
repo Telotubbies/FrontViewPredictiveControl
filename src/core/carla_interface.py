@@ -12,7 +12,7 @@ CARLA Interface Module - จัดการการเชื่อมต่อ�
 
 import logging
 from pathlib import Path
-from typing import Optional, Tuple, List, Any
+from typing import Optional, List
 import sys
 
 import carla
@@ -23,7 +23,7 @@ logger = logging.getLogger(__name__)
 
 class CarlaInterface:
     """CARLA simulator interface สำหรับ lane keeping system"""
-    
+
     def __init__(self, host: str = "localhost", port: int = 2000, timeout: float = 10.0):
         self.host = host
         self.port = port
@@ -33,7 +33,7 @@ class CarlaInterface:
         self.vehicle: Optional[carla.Vehicle] = None
         self.camera: Optional[carla.Sensor] = None
         self.blueprint_library: Optional[carla.BlueprintLibrary] = None
-        
+
     def connect(self) -> bool:
         """เชื่อมต่อกับ CARLA server"""
         try:
@@ -46,20 +46,20 @@ class CarlaInterface:
         except Exception as e:
             logger.error(f"Failed to connect to CARLA: {e}")
             return False
-    
-    def spawn_vehicle(self, 
+
+    def spawn_vehicle(self,
                      vehicle_model: str = "vehicle.tesla.model3",
                      spawn_point: Optional[carla.Transform] = None) -> bool:
         """Spawn vehicle ใน CARLA world"""
         if not self.world or not self.blueprint_library:
             logger.error("CARLA not connected")
             return False
-            
+
         try:
             # Get vehicle blueprint
             blueprint = self.blueprint_library.filter(vehicle_model)[0]
             blueprint.set_attribute('role_name', 'ego_vehicle')
-            
+
             # Get spawn point
             if spawn_point is None:
                 spawn_points = self.world.get_map().get_spawn_points()
@@ -67,7 +67,7 @@ class CarlaInterface:
                     logger.error("No spawn points available")
                     return False
                 spawn_point = spawn_points[0]
-            
+
             # Spawn vehicle
             self.vehicle = self.world.spawn_actor(blueprint, spawn_point)
             if self.vehicle:
@@ -76,13 +76,13 @@ class CarlaInterface:
             else:
                 logger.error("Failed to spawn vehicle")
                 return False
-                
+
         except Exception as e:
             logger.error(f"Failed to spawn vehicle: {e}")
             return False
-    
-    def setup_camera(self, 
-                    cam_w: int = 640, 
+
+    def setup_camera(self,
+                    cam_w: int = 640,
                     cam_h: int = 480,
                     cam_fov: float = 110.0,
                     sensor_type: str = 'sensor.camera.rgb') -> bool:
@@ -90,44 +90,44 @@ class CarlaInterface:
         if not self.vehicle or not self.blueprint_library:
             logger.error("Vehicle not spawned or blueprint library not available")
             return False
-            
+
         try:
             # Get camera blueprint
             camera_bp = self.blueprint_library.find(sensor_type)
             camera_bp.set_attribute('image_size_x', str(cam_w))
             camera_bp.set_attribute('image_size_y', str(cam_h))
             camera_bp.set_attribute('fov', str(cam_fov))
-            
+
             # Create transform for camera (front mount)
             camera_transform = carla.Transform(
                 carla.Location(x=1.5, z=2.0),  # 1.5m forward, 2.0m height
                 carla.Rotation(pitch=-8)  # -8° pitch for lane detection
             )
-            
+
             # Spawn camera
             self.camera = self.world.spawn_actor(
-                camera_bp, 
-                camera_transform, 
+                camera_bp,
+                camera_transform,
                 attach_to=self.vehicle
             )
-            
+
             if self.camera:
                 logger.info(f"Camera setup: {cam_w}x{cam_h}, FOV={cam_fov}°")
                 return True
             else:
                 logger.error("Failed to spawn camera")
                 return False
-                
+
         except Exception as e:
             logger.error(f"Failed to setup camera: {e}")
             return False
-    
+
     def get_vehicle_control(self) -> carla.VehicleControl:
         """Get vehicle control object"""
         if self.vehicle:
             return carla.VehicleControl()
         return carla.VehicleControl()
-    
+
     def apply_control(self, control: carla.VehicleControl) -> bool:
         """Apply control to vehicle"""
         if self.vehicle:
@@ -138,7 +138,7 @@ class CarlaInterface:
                 logger.error(f"Failed to apply control: {e}")
                 return False
         return False
-    
+
     def get_vehicle_velocity(self) -> float:
         """Get current vehicle speed in m/s"""
         if self.vehicle:
@@ -148,7 +148,7 @@ class CarlaInterface:
             except Exception as e:
                 logger.error(f"Failed to get velocity: {e}")
         return 0.0
-    
+
     def get_vehicle_transform(self) -> Optional[carla.Transform]:
         """Get current vehicle transform"""
         if self.vehicle:
@@ -157,31 +157,31 @@ class CarlaInterface:
             except Exception as e:
                 logger.error(f"Failed to get transform: {e}")
         return None
-    
-    def get_waypoints(self, 
+
+    def get_waypoints(self,
                      transform: carla.Transform,
-                     num_wp: int = 40, 
+                     num_wp: int = 40,
                      wp_step: float = 2.0) -> List[carla.Waypoint]:
         """Get waypoints from current position"""
         if not self.world:
             return []
-            
+
         try:
             map_ = self.world.get_map()
             waypoint = map_.get_waypoint(transform.location)
             waypoints = []
-            
+
             for i in range(num_wp):
                 if waypoint is None:
                     break
                 waypoints.append(waypoint)
                 waypoint = waypoint.next(wp_step)[0] if waypoint.next(wp_step) else None
-                
+
             return waypoints
         except Exception as e:
             logger.error(f"Failed to get waypoints: {e}")
             return []
-    
+
     def cleanup(self):
         """Cleanup CARLA actors and connection"""
         try:
@@ -190,22 +190,22 @@ class CarlaInterface:
                 self.camera.destroy()
                 self.camera = None
                 logger.info("Camera destroyed")
-                
+
             # Destroy vehicle
             if self.vehicle:
                 self.vehicle.destroy()
                 self.vehicle = None
                 logger.info("Vehicle destroyed")
-                
+
         except Exception as e:
             logger.error(f"Error during cleanup: {e}")
-    
+
     def __enter__(self):
         """Context manager entry"""
         if self.connect():
             return self
         raise ConnectionError("Failed to connect to CARLA")
-    
+
     def __exit__(self, exc_type, exc_val, exc_tb):
         """Context manager exit"""
         self.cleanup()
@@ -216,11 +216,10 @@ def setup_carla_paths():
     root = Path(__file__).resolve().parent.parent
     if str(root) not in sys.path:
         sys.path.insert(0, str(root))
-    
+
     try:
-        import carla
+        import carla  # noqa: F401
     except ImportError:
         for path in (root.parent / "PythonAPI", root / ".carla_py"):
             if path.exists() and str(path) not in sys.path:
                 sys.path.insert(0, str(path))
-        import carla

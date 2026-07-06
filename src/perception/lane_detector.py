@@ -16,13 +16,8 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).parent.parent))
 from config import (
-    UNET_INPUT_W,
-    UNET_INPUT_H,
     UNET_INPUT_W_INFER,
     UNET_INPUT_H_INFER,
-    RAW_MASK_DILATE_KERNEL,
-    RAW_MASK_CLOSE_KERNEL,
-    RAW_MASK_CLOSE_KERNEL2,
 )
 from utils.device_utils import get_device
 from perception.bev_lane_pipeline import BEVLanePipeline
@@ -32,7 +27,7 @@ logger = logging.getLogger(__name__)
 
 class UNetBlock(nn.Module):
     """U-Net building block."""
-    
+
     def __init__(self, in_channels: int, out_channels: int):
         super(UNetBlock, self).__init__()
         self.conv = nn.Sequential(
@@ -43,7 +38,7 @@ class UNetBlock(nn.Module):
             nn.BatchNorm2d(out_channels),
             nn.ReLU(inplace=True)
         )
-    
+
     def forward(self, x):
         return self.conv(x)
 
@@ -51,76 +46,76 @@ class UNetBlock(nn.Module):
 class LaneUNet(nn.Module):
     """
     U-Net for lane detection.
-    
+
     Architecture:
     - Encoder: Downsampling path
     - Decoder: Upsampling path with skip connections
     - Output: Lane segmentation mask
     """
-    
+
     def __init__(self, in_channels: int = 3, num_classes: int = 2):
         super(LaneUNet, self).__init__()
-        
+
         # Encoder
         self.enc1 = UNetBlock(in_channels, 64)
         self.enc2 = UNetBlock(64, 128)
         self.enc3 = UNetBlock(128, 256)
         self.enc4 = UNetBlock(256, 512)
-        
+
         # Bottleneck
         self.bottleneck = UNetBlock(512, 1024)
-        
+
         # Decoder
         self.up4 = nn.ConvTranspose2d(1024, 512, 2, stride=2)
         self.dec4 = UNetBlock(1024, 512)
-        
+
         self.up3 = nn.ConvTranspose2d(512, 256, 2, stride=2)
         self.dec3 = UNetBlock(512, 256)
-        
+
         self.up2 = nn.ConvTranspose2d(256, 128, 2, stride=2)
         self.dec2 = UNetBlock(256, 128)
-        
+
         self.up1 = nn.ConvTranspose2d(128, 64, 2, stride=2)
         self.dec1 = UNetBlock(128, 64)
-        
+
         self.final = nn.Conv2d(64, num_classes, 1)
-        
+
         self.device = get_device()
         self.to(self.device)
-        
+
         logger.info(f"✅ LaneUNet initialized (device={self.device})")
-    
+
     def forward(self, x: torch.Tensor) -> torch.Tensor:
         e1 = self.enc1(x)
         p1 = F.max_pool2d(e1, 2)
-        
+
         e2 = self.enc2(p1)
         p2 = F.max_pool2d(e2, 2)
-        
+
         e3 = self.enc3(p2)
         p3 = F.max_pool2d(e3, 2)
-        
+
         e4 = self.enc4(p3)
         p4 = F.max_pool2d(e4, 2)
-        
+
         b = self.bottleneck(p4)
-        
+
         d4 = self.up4(b)
         d4 = torch.cat([d4, e4], dim=1)
         d4 = self.dec4(d4)
-        
+
         d3 = self.up3(d4)
         d3 = torch.cat([d3, e3], dim=1)
         d3 = self.dec3(d3)
-        
+
         d2 = self.up2(d3)
         d2 = torch.cat([d2, e2], dim=1)
         d2 = self.dec2(d2)
-        
+
         d1 = self.up1(d2)
         d1 = torch.cat([d1, e1], dim=1)
         d1 = self.dec1(d1)
-        
+
         return self.final(d1)
 
 
@@ -128,14 +123,14 @@ class LaneDetector:
     """
     Lane detection using U-Net model or Ultra-Fast-Lane-Detection-v2.
     """
-    
+
     def __init__(self, model_path: Optional[str] = None, use_carla: bool = True,
                  model_type: str = "unet"):
         self.use_carla = use_carla
         self.model = None
         self.model_type = model_type
         self.ultra_fast_detector = None
-        
+
         if model_path and Path(model_path).exists():
             if model_type == "ultra_fast":
                 try:
@@ -177,7 +172,7 @@ class LaneDetector:
             else:
                 logger.warning("No model provided, switching to CARLA detection")
                 self.use_carla = True
-        
+
         # Initialize BEV lane pipeline
         self.bev_pipeline = BEVLanePipeline()
 
@@ -187,12 +182,12 @@ class LaneDetector:
     def detect_lanes_bev(self, image: np.ndarray, return_vis: bool = True, ego_mask: np.ndarray = None):
         """
         Detect lanes using BEV pipeline with polynomial fitting.
-        
+
         Args:
             image: RGB image (H, W, 3)
             return_vis: If True, return BEV visualization
             ego_mask: Optional ego-lane mask to filter adjacent lanes
-            
+
         Returns:
             left_coeffs: Left lane polynomial coefficients in BEV
             right_coeffs: Right lane polynomial coefficients in BEV
@@ -204,7 +199,7 @@ class LaneDetector:
         """
         if self.model is None:
             return None, None, 0.0, 0.0, 0.0, 0.0, None
-        
+
         # Get probability map from UNet
         with torch.no_grad():
             img_tensor = torch.FloatTensor(image).permute(2, 0, 1).unsqueeze(0) / 255.0
@@ -212,26 +207,26 @@ class LaneDetector:
             output = self.model(img_tensor)
             probs = torch.softmax(output, dim=1)
             prob_map = probs[0, 1].cpu().numpy()
-        
+
         # Apply ego-lane mask to filter adjacent lanes (completely suppress non-ego)
         if ego_mask is not None:
             from perception.ego_lane_mask import filter_prob_map_with_ego_mask
             prob_map = filter_prob_map_with_ego_mask(prob_map, ego_mask, blend_factor=0.0)
-        
+
         # Process through BEV pipeline with visualization
         left_coeffs, right_coeffs, l_active, r_active, bev_vis = \
             self.bev_pipeline.process(prob_map, return_vis=return_vis)
-        
+
         # Compute CTE, heading, curvature
         cte, heading, curvature = self.bev_pipeline.compute_cte_heading(
             left_coeffs, right_coeffs, image.shape[0])
-        
+
         # Confidence based on active window counts
         max_active = 25  # N_WINDOWS (updated)
         confidence = min(1.0, (l_active + r_active) / (2 * max_active) + 0.35)
         if left_coeffs is None or right_coeffs is None:
             confidence *= 0.6
-        
+
         return left_coeffs, right_coeffs, cte, heading, curvature, confidence, bev_vis
 
     # ------------------------------------------------------------------
@@ -463,12 +458,12 @@ class LaneDetector:
                 img_tensor = F.interpolate(img_tensor, size=(UNET_INPUT_H_INFER, UNET_INPUT_W_INFER),
                                            mode='bilinear', align_corners=False)
                 output = self.model(img_tensor)
-                
+
                 probs = torch.softmax(output, dim=1)
                 lane_prob = probs[0, 1].cpu().numpy()
                 lane_prob = cv2.resize(lane_prob, (image.shape[1], image.shape[0]),
                                       interpolation=cv2.INTER_LINEAR)
-                
+
                 mask_bin = (lane_prob > 0.02).astype(np.uint8)
                 kernel = cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (5, 5))
                 mask = cv2.morphologyEx(mask_bin, cv2.MORPH_CLOSE, kernel)

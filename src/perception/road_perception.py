@@ -222,7 +222,7 @@ class BEVRoadPerception:
         # Use BEV pipeline with visualization
         left_c, right_c, raw_cte, raw_head, raw_curv, conf, bev_vis = \
             self.detector.detect_lanes_bev(img, return_vis=True)
-        
+
         # Debug: log detection results every 100 frames
         if not hasattr(self, '_frame_count'):
             self._frame_count = 0
@@ -253,10 +253,10 @@ class BEVRoadPerception:
         # This ensures dots match the green fill exactly (migrated from test_unet_lane.py)
         left_wins = getattr(self.detector.bev_pipeline, '_left_wins', None)
         right_wins = getattr(self.detector.bev_pipeline, '_right_wins', None)
-        
+
         overlay_warp = self.detector.bev_pipeline.create_lane_overlay_with_dots(
             left_c, right_c, (h0, w0), left_wins=left_wins, right_wins=right_wins)
-        
+
         # Blend overlay with original image
         lane_overlay = cv2.resize(rgb, (w0, h0))
         if overlay_warp is not None and overlay_warp.any():

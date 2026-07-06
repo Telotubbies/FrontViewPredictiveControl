@@ -4,13 +4,14 @@ CARLA MPC Lane Keeping System - Main Entry Point
 
 Refactored main module that provides clean entry point for:
 - UNet + MPC lane keeping
-- Classical + MPC lane keeping  
+- Classical + MPC lane keeping
 - Real-time visualization
 - Safety systems
 """
 
 import argparse
 import logging
+import queue
 import sys
 import time
 from pathlib import Path
@@ -33,7 +34,7 @@ from pipeline import LKAPipeline
 from safety.override import SafetyOverride
 from safety.stuck_recovery import StuckRecovery
 from config import (
-    TARGET_SPEED_KMH, USE_TRAJECTORY_PIPELINE, 
+    TARGET_SPEED_KMH, USE_TRAJECTORY_PIPELINE,
     CONTROL_HZ, MAIN_LOOP_SLEEP_S
 )
 
@@ -42,8 +43,8 @@ logger = logging.getLogger(__name__)
 
 class CARLAMPCSystem:
     """Main CARLA MPC system orchestrator"""
-    
-    def __init__(self, 
+
+    def __init__(self,
                  model_path: str,
                  target_speed_kmh: float = TARGET_SPEED_KMH,
                  use_classical: bool = False,
@@ -52,7 +53,7 @@ class CARLAMPCSystem:
         self.target_speed_kmh = target_speed_kmh
         self.use_classical = use_classical
         self.no_gui = no_gui
-        
+
         # System components
         self.carla: Optional[CarlaInterface] = None
         self.dashboard: Optional[Dashboard] = None
@@ -60,39 +61,39 @@ class CARLAMPCSystem:
         self.mpc_runner: Optional[MPCRunner] = None
         self.safety: Optional[SafetyOverride] = None
         self.stuck_recovery: Optional[StuckRecovery] = None
-        
+
         # Device setup
         self.device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
-        
+
         # System state
         self.running = False
         self.frame_count = 0
-        
+
     def initialize(self) -> bool:
         """Initialize all system components"""
         try:
             logger.info("Initializing CARLA MPC System...")
-            
+
             # Initialize CARLA interface
             self.carla = CarlaInterface()
             if not self.carla.connect():
                 return False
-            
+
             # Spawn vehicle
             if not self.carla.spawn_vehicle():
                 return False
-            
+
             # Setup camera
             if not self.carla.setup_camera():
                 return False
-            
+
             # Initialize dashboard if not disabled
             if not self.no_gui:
                 self.dashboard = Dashboard()
                 if not self.dashboard.initialize():
                     logger.warning("Failed to initialize dashboard, continuing without GUI")
                     self.dashboard = None
-            
+
             # Initialize perception pipeline
             self.pipeline = LKAPipeline(
                 model_path=self.model_path,
@@ -101,11 +102,11 @@ class CARLAMPCSystem:
                 use_trajectory_pipeline=USE_TRAJECTORY_PIPELINE
             )
             logger.info(f"Pipeline initialized: {'Classical' if self.use_classical else 'UNet'}")
-            
+
             # Initialize safety systems
             self.safety = SafetyOverride()
             self.stuck_recovery = StuckRecovery()
-            
+
             # Initialize MPC runner
             self.mpc_runner = MPCRunner(
                 mpc_controller=self.pipeline._mpc if hasattr(self.pipeline, '_mpc') else None,
@@ -113,27 +114,27 @@ class CARLAMPCSystem:
                 perception_pipeline=self.pipeline,
                 target_speed_kmh=self.target_speed_kmh
             )
-            
+
             logger.info("System initialization completed")
             return True
-            
+
         except Exception as e:
             logger.error(f"System initialization failed: {e}")
             return False
-    
+
     def run(self) -> int:
         """Main system loop"""
         if not self.initialize():
             return 1
-        
+
         self.running = True
         logger.info("Starting main control loop...")
-        
+
         try:
             # Camera callback setup
             rgb_frame = None
             camera_queue = queue.Queue(maxsize=2)
-            
+
             def camera_callback(image):
                 nonlocal rgb_frame
                 try:
@@ -141,7 +142,7 @@ class CARLAMPCSystem:
                     array = np.reshape(array, (image.height, image.width, 4))
                     array = array[:, :, :3]  # Remove alpha channel
                     array = array[:, :, ::-1]  # BGR to RGB
-                    
+
                     # Put in queue for MPC runner
                     try:
                         camera_queue.put_nowait(array)
@@ -151,27 +152,25 @@ class CARLAMPCSystem:
                             camera_queue.put_nowait(array)
                         except queue.Empty:
                             pass
-                    
+
                     rgb_frame = array
                 except Exception as e:
                     logger.error(f"Camera callback error: {e}")
-            
+
             # Start camera
             self.carla.camera.listen(camera_callback)
-            
+
             # Start MPC runner
             with self.mpc_runner:
                 # Main control loop
-                last_time = time.time()
-                
                 while self.running:
                     loop_start_time = time.time()
-                    
+
                     # Handle GUI events
                     if self.dashboard:
                         if not self.dashboard.handle_events():
                             break
-                    
+
                     # Get RGB frame
                     current_frame = None
                     try:
@@ -181,26 +180,26 @@ class CARLAMPCSystem:
                             current_frame = rgb_frame
                         else:
                             continue
-                    
+
                     # Get vehicle state
                     vehicle_transform = self.carla.get_vehicle_transform()
                     current_speed_ms = self.carla.get_vehicle_velocity()
-                    
+
                     if vehicle_transform is None:
                         continue
-                    
+
                     # Run control step
                     control_state, perception_result = self.mpc_runner.step(
                         current_frame, current_speed_ms, vehicle_transform
                     )
-                    
+
                     # Apply control to vehicle
                     carla_control = self.carla.get_vehicle_control()
                     carla_control.steering = control_state.steering
                     carla_control.throttle = control_state.throttle
                     carla_control.brake = control_state.brake
                     self.carla.apply_control(carla_control)
-                    
+
                     # Check for stuck recovery
                     recovery = self.stuck_recovery.update(
                         current_speed_ms, control_state.throttle
@@ -214,32 +213,32 @@ class CARLAMPCSystem:
                         carla_control.reverse = r_reverse
                         self.carla.apply_control(carla_control)
                         logger.info("Applying stuck recovery (phase=%s)", self.stuck_recovery._phase)
-                    
+
                     # Update dashboard
                     if self.dashboard and self.frame_count % 1 == 0:
                         self._update_dashboard(
                             current_frame, control_state, perception_result, current_speed_ms
                         )
-                    
+
                     # Update frame counter
                     self.frame_count += 1
-                    
+
                     # Maintain control frequency
                     loop_time = time.time() - loop_start_time
                     target_loop_time = 1.0 / CONTROL_HZ
                     sleep_time = max(0, target_loop_time - loop_time - MAIN_LOOP_SLEEP_S)
-                    
+
                     if sleep_time > 0:
                         time.sleep(sleep_time)
-                    
+
                     # Log performance periodically
                     if self.frame_count % 100 == 0:
                         metrics = self.mpc_runner.get_performance_metrics()
                         logger.info(f"Performance: FPS={metrics.get('fps', 0):.1f}, "
                                   f"Control={metrics.get('control_time_mean', 0)*1000:.1f}ms")
-            
+
             return 0
-            
+
         except KeyboardInterrupt:
             logger.info("Interrupted by user")
             return 0
@@ -248,67 +247,67 @@ class CARLAMPCSystem:
             return 1
         finally:
             self.cleanup()
-    
-    def _update_dashboard(self, 
+
+    def _update_dashboard(self,
                          rgb_frame: np.ndarray,
-                         control_state, 
+                         control_state,
                          perception_result,
                          current_speed_ms: float):
         """Update dashboard display"""
         try:
             # Clear panel
             self.dashboard.panel_surface.fill((0, 0, 0))
-            
+
             # Render camera frame with lane overlay
             if perception_result and hasattr(perception_result, 'lane_overlay'):
                 self.dashboard.render_lane_overlay(rgb_frame, perception_result.lane_overlay)
             else:
                 self.dashboard.render_lane_overlay(rgb_frame)
-            
+
             # Render BEV view if available
             if perception_result and hasattr(perception_result, 'bev_binary'):
                 self.dashboard.render_bev_view(perception_result.bev_binary)
-            
+
             # Render status info
             speed_kmh = current_speed_ms * 3.6
             confidence = perception_result.confidence if perception_result else 0.0
             cte = perception_result.cte if perception_result else 0.0
             fps = self.mpc_runner.fps_history[-1] if self.mpc_runner.fps_history else 0.0
-            
+
             self.dashboard.render_status_info(
                 speed_kmh, control_state.steering, cte, confidence, fps
             )
-            
+
             # Render control info
             self.dashboard.render_control_info(
                 control_state.throttle, control_state.brake, self.target_speed_kmh
             )
-            
+
             # Update display
             self.dashboard.update()
-            
+
         except Exception as e:
             logger.error(f"Dashboard update error: {e}")
-    
+
     def cleanup(self):
         """Cleanup all system resources"""
         try:
             logger.info("Cleaning up system resources...")
-            
+
             # Stop camera
             if self.carla and self.carla.camera:
                 self.carla.camera.stop()
-            
+
             # Cleanup dashboard
             if self.dashboard:
                 self.dashboard.cleanup()
-            
+
             # Cleanup CARLA
             if self.carla:
                 self.carla.cleanup()
-            
+
             logger.info("System cleanup completed")
-            
+
         except Exception as e:
             logger.error(f"Cleanup error: {e}")
 
@@ -333,22 +332,22 @@ def main():
                        help="Directory to record run data (not yet fully implemented)")
     parser.add_argument("--duration", type=float, default=None,
                        help="Maximum run duration in seconds (not yet fully implemented)")
-    
+
     args = parser.parse_args()
-    
+
     # Setup logging
     logging.basicConfig(
         level=getattr(logging, args.log_level),
         format="%(asctime)s %(levelname)s %(name)s %(message)s"
     )
-    
+
     # Check model file
     if not args.classical:
         model_path = Path(args.model)
         if not model_path.exists():
             logger.error(f"Model file not found: {model_path}")
             return 1
-    
+
     # Create and run system
     system = CARLAMPCSystem(
         model_path=args.model,
@@ -356,7 +355,7 @@ def main():
         use_classical=args.classical,
         no_gui=args.no_gui
     )
-    
+
     return system.run()
 
 

@@ -56,7 +56,8 @@ _flat = _load_yaml_config(DEFAULT_YAML)
 _apply_config(_flat)
 
 # ── Derived / legacy aliases ─────────────────────────────────────────────────
-UNET_WEIGHT_BASE = UNET_CENTER_WEIGHT  # type: ignore[name-defined]
+# UNET_CENTER_WEIGHT is set dynamically by _apply_config() above
+UNET_WEIGHT_BASE = _flat.get("UNET_CENTER_WEIGHT", 0)  # noqa: F841
 DEFAULT_MODEL = PROJECT_ROOT / "model" / "lane_unet_final.pth"
 
 # ── Performance flags (not user-tunable parameters) ──────────────────────────

@@ -88,6 +88,6 @@ class StuckRecovery:
         """Check if stuck recovery should be triggered."""
         # Simple implementation based on speed and current phase
         return self._phase != "idle" or (
-            speed_ms < self.STUCK_SPEED_MS and 
+            speed_ms < self.STUCK_SPEED_MS and
             self._n >= self.STUCK_THRESHOLD
         )

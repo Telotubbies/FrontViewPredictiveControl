@@ -17,13 +17,13 @@ from state import FrameState
 
 class TestLKAPipeline:
     """Test cases for LKAPipeline class."""
-    
+
     def setup_method(self):
         """Setup test environment."""
         self.model_path = "dummy_model.pth"
         self.device = torch.device("cpu")
         self.target_speed_kmh = 30.0
-        
+
         with patch('pipeline.RoadPerception'), \
              patch('pipeline.LaneTemporalSmoother'), \
              patch('pipeline.LaneMPC'), \
@@ -34,24 +34,24 @@ class TestLKAPipeline:
                 self.target_speed_kmh,
                 use_trajectory_pipeline=False
             )
-    
+
     def test_process_method_exists(self):
         """Test that process method exists and is callable."""
         assert hasattr(self.pipeline, 'process')
         assert callable(self.pipeline.process)
-    
+
     def test_process_delegates_to_step(self):
         """Test that process method delegates to step with default values."""
         # Mock the step method
         mock_step_result = (0.1, 0.2, 0.3, Mock(spec=FrameState))
         self.pipeline.step = Mock(return_value=mock_step_result)
-        
+
         # Create dummy RGB input
         rgb_input = np.random.randint(0, 255, (480, 640, 3), dtype=np.uint8)
-        
+
         # Call process
         result = self.pipeline.process(rgb_input)
-        
+
         # Verify step was called with correct default values
         self.pipeline.step.assert_called_once_with(
             rgb=rgb_input,
@@ -60,35 +60,35 @@ class TestLKAPipeline:
             prev_steer=0.0,
             prev_throttle=0.0
         )
-        
+
         # Verify result is passed through
         assert result == mock_step_result
-    
+
     def test_process_with_different_inputs(self):
         """Test process with various RGB input shapes."""
         mock_step_result = (0.0, 0.0, 0.0, Mock(spec=FrameState))
         self.pipeline.step = Mock(return_value=mock_step_result)
-        
+
         # Test different input sizes
         test_shapes = [
             (480, 640, 3),
             (240, 320, 3),
             (720, 1280, 3)
         ]
-        
+
         for shape in test_shapes:
             rgb_input = np.random.randint(0, 255, shape, dtype=np.uint8)
             result = self.pipeline.process(rgb_input)
             assert result == mock_step_result
             self.pipeline.step.assert_called()
-    
+
     def test_process_step_exception_handling(self):
         """Test that process propagates exceptions from step."""
         # Mock step to raise exception
         self.pipeline.step = Mock(side_effect=ValueError("Test error"))
-        
+
         rgb_input = np.random.randint(0, 255, (480, 640, 3), dtype=np.uint8)
-        
+
         # Should raise the same exception
         with pytest.raises(ValueError, match="Test error"):
             self.pipeline.process(rgb_input)
@@ -96,13 +96,13 @@ class TestLKAPipeline:
 
 class TestLKAPipelineWithTrajectory:
     """Test LKAPipeline with trajectory pipeline enabled."""
-    
+
     def setup_method(self):
         """Setup test environment with trajectory pipeline."""
         self.model_path = "dummy_model.pth"
         self.device = torch.device("cpu")
         self.target_speed_kmh = 30.0
-        
+
         with patch('pipeline.RoadPerception'), \
              patch('pipeline.LaneTemporalSmoother'), \
              patch('pipeline.LaneMPC'), \
@@ -115,7 +115,7 @@ class TestLKAPipelineWithTrajectory:
                 use_trajectory_pipeline=True
             )
             self.mock_trajectory = mock_trajectory
-    
+
     def test_process_with_trajectory_pipeline(self):
         """Test process method works with trajectory pipeline enabled."""
         # Mock trajectory pipeline process output
@@ -130,20 +130,20 @@ class TestLKAPipelineWithTrajectory:
         mock_trajectory_output.lane_overlay = None
         mock_trajectory_output.bev_window_vis = None
         mock_trajectory_output.mask_vis = None
-        
+
         self.mock_trajectory.return_value.process.return_value = mock_trajectory_output
-        
+
         # Mock other components
         self.pipeline._mpc.solve = Mock(return_value=(0.1, 0.2, 0.0))
         self.pipeline._safety.apply = Mock(return_value=(0.1, 0.2, 0.0))
-        
+
         rgb_input = np.random.randint(0, 255, (480, 640, 3), dtype=np.uint8)
-        
+
         # Should not raise exception
         result = self.pipeline.process(rgb_input)
-        
+
         # Verify trajectory pipeline was used
         self.mock_trajectory.return_value.process.assert_called_once_with(rgb_input)
-        
+
         # Verify result structure
         assert len(result) == 4  # (steer, throttle, brake, frame_state)

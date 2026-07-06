@@ -14,7 +14,6 @@ from config import (
     PERCEPTION_LIGHTWEIGHT_VIS,
     CTE_TO_METERS,
     CURVATURE_WP_EMA_ALPHA,
-    LANE_CONF_THRESHOLD,
     LANE_EMA_ALPHA,
     PERCEPTION_PATH_MIN_CONF,
     PERCEPTION_PATH_SMOOTH_ALPHA,
@@ -59,7 +58,7 @@ from state import FrameState
 from temporal.lane_lstm import LaneTemporalSmoother
 from control.lane_mpc import LaneMPC, MPCConfig, get_mpc_weights, compute_mpc_horizon
 from safety.override import SafetyOverride
-from perception.road_perception import RoadPerception, BEVRoadPerception
+from perception.road_perception import BEVRoadPerception
 
 from .reference import dynamic_lookahead_m, get_reference_path, resample_path, smooth_path_lat
 from .fusion import apply_fusion
@@ -184,7 +183,6 @@ class LKAStep:
             head_s = float(out.heading_err)
             curv_s = float(out.curvature)
             lane_conf = float(out.confidence)
-            waypoint_only = bool(out.waypoint_only)
             geometry_valid = bool(out.geometry_valid)
             v_ref_traj = float(out.v_ref_at_ego)
             lane_overlay = out.lane_overlay
@@ -207,7 +205,6 @@ class LKAStep:
             head_s = float(out.heading_err)
             curv_s = float(out.curvature)
             lane_conf = float(out.confidence)
-            waypoint_only = bool(out.waypoint_only)
             geometry_valid = bool(out.geometry_valid)
             v_ref_traj = float(out.v_ref_at_ego)
             lane_overlay = out.lane_overlay
@@ -240,7 +237,6 @@ class LKAStep:
             cte_m_lane = float(sm[0]) * CTE_TO_METERS
             head_s = float(sm[1])
             curv_s = float(sm[2])
-            waypoint_only = lane_conf < LANE_CONF_THRESHOLD
             geometry_valid = False
             v_ref_traj = None
             tracked = False

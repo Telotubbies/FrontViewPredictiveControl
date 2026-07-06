@@ -77,13 +77,13 @@ def get_quintic_coefficients(
 ) -> np.ndarray:
     """
     Solve quintic polynomial coefficients for boundary conditions.
-    
+
     Quintic: y(s) = a5*s^5 + a4*s^4 + a3*s^3 + a2*s^2 + a1*s + a0
-    
+
     Boundary conditions:
     - y(0) = y0, y'(0) = dy0, y''(0) = ddy0
     - y(T) = yT, y'(T) = dyT, y''(T) = ddyT
-    
+
     Returns: [a5, a4, a3, a2, a1, a0]
     """
     # Build matrix equation: A * coeffs = b
@@ -95,9 +95,9 @@ def get_quintic_coefficients(
         [5*T**4, 4*T**3, 3*T**2, 2*T, 1, 0],  # y'(T)
         [20*T**3, 12*T**2, 6*T, 2, 0, 0],     # y''(T)
     ])
-    
+
     b = np.array([y0, dy0, ddy0, yT, dyT, ddyT])
-    
+
     coeffs = np.linalg.solve(A, b)
     return coeffs
 
@@ -111,12 +111,12 @@ def get_reference_path_quintic(
 ) -> List[Tuple[float, float]]:
     """
     Generate reference path using quintic polynomial for smooth trajectories.
-    
+
     Quintic polynomial (5th order) provides:
     - Continuous position, velocity, acceleration
     - Smoother curvature
     - Better passenger comfort
-    
+
     Boundary conditions:
     - Initial: y(0) = cte_m, y'(0) = tan(head_rad) ≈ head_rad, y''(0) = curv
     - Final: y(T) = 0 (lane center), y'(T) = 0 (aligned), y''(T) = 0 (straight)
@@ -125,17 +125,17 @@ def get_reference_path_quintic(
     y0 = cte_m
     dy0 = np.tan(head_rad) if abs(head_rad) < 0.5 else head_rad  # Small angle approximation
     ddy0 = curv
-    
+
     # Final conditions (converge to lane center)
     yT = 0.0
     dyT = 0.0
     ddyT = 0.0
-    
+
     T = lookahead_m
-    
+
     # Solve quintic polynomial
     coeffs = get_quintic_coefficients(y0, dy0, ddy0, yT, dyT, ddyT, T)
-    
+
     # Generate path points
     path = []
     for i in range(num_pts + 1):
@@ -143,7 +143,7 @@ def get_reference_path_quintic(
         # Evaluate quintic: y = a5*s^5 + a4*s^4 + a3*s^3 + a2*s^2 + a1*s + a0
         y = np.polyval(coeffs, s)
         path.append((s, float(y)))
-    
+
     return path
 
 
@@ -157,7 +157,7 @@ def get_reference_path(
 ) -> List[Tuple[float, float]]:
     """
     Generate reference path in vehicle frame from current state.
-    
+
     Args:
         cte_m: Cross-track error (m)
         head_rad: Heading error (rad)
@@ -165,7 +165,7 @@ def get_reference_path(
         lookahead_m: Lookahead distance (m)
         num_pts: Number of points
         use_quintic: Use quintic polynomial (smoother) vs parabolic (faster)
-    
+
     Returns:
         List of (s_m, lateral_m) path points
     """

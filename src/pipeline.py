@@ -12,7 +12,6 @@ from config import (
     CAM_W,
     CAM_H,
     CTE_TO_METERS,
-    LANE_CONF_THRESHOLD,
     LANE_EMA_ALPHA,
     REF_PATH_LOOKAHEAD_M,
     REF_PATH_NUM_PTS,
@@ -26,7 +25,7 @@ from state import FrameState
 from temporal.lane_lstm import LaneTemporalSmoother
 from control.lane_mpc import LaneMPC, MPCConfig
 from safety.override import SafetyOverride
-from perception.road_perception import RoadPerception, BEVRoadPerception
+from perception.road_perception import BEVRoadPerception
 
 logger = logging.getLogger(__name__)
 
@@ -147,7 +146,6 @@ class LKAPipeline:
             head_s = float(out.heading_err)
             curv_s = float(out.curvature)
             lane_conf = float(out.confidence)
-            waypoint_only = bool(out.waypoint_only)
             geometry_valid = bool(out.geometry_valid)
             v_ref_traj = float(out.v_ref_at_ego)
             lane_overlay = out.lane_overlay
@@ -169,7 +167,6 @@ class LKAPipeline:
             cte_m_lane = float(sm[0]) * CTE_TO_METERS
             head_s = float(sm[1])
             curv_s = float(sm[2])
-            waypoint_only = lane_conf < LANE_CONF_THRESHOLD
             geometry_valid = False
             v_ref_traj = None
             lane_overlay = None

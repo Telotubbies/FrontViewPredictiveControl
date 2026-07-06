@@ -4,7 +4,6 @@ CARLA Lane Detection Dataset Loader
 Loads images and masks from CARLA dataset with train/val/test split
 """
 
-import os
 import numpy as np
 import cv2
 from pathlib import Path

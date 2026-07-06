@@ -12,7 +12,7 @@ logger = logging.getLogger(__name__)
 def get_device() -> torch.device:
     """
     Get the best available device (ROCm > CUDA > CPU).
-    
+
     Returns:
         torch.device object
     """
@@ -21,20 +21,20 @@ def get_device() -> torch.device:
         device = torch.device('cpu')
         logger.info("⚠️  FORCE_CPU=1, using CPU")
         return device
-    
+
     # Check for ROCm (AMD GPU)
     if hasattr(torch.version, 'hip') and torch.version.hip is not None:
         if torch.cuda.is_available():
             device = torch.device('cuda')
             logger.info(f"✅ Using ROCm device: {torch.cuda.get_device_name(0)}")
             return device
-    
+
     # Check for CUDA (NVIDIA GPU)
     if torch.cuda.is_available():
         device = torch.device('cuda')
         logger.info(f"✅ Using CUDA device: {torch.cuda.get_device_name(0)}")
         return device
-    
+
     # Fallback to CPU
     device = torch.device('cpu')
     logger.info("⚠️  No GPU available, using CPU")
@@ -60,7 +60,7 @@ def get_device_info() -> dict:
         'is_cuda': False,
         'is_cpu': True
     }
-    
+
     if is_rocm_available():
         info['device_type'] = 'rocm'
         info['device_name'] = torch.cuda.get_device_name(0)
@@ -71,6 +71,6 @@ def get_device_info() -> dict:
         info['device_name'] = torch.cuda.get_device_name(0)
         info['is_cuda'] = True
         info['is_cpu'] = False
-    
+
     return info
 

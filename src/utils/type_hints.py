@@ -3,12 +3,12 @@ Type hints and common data structures for CARLA MPC system
 
 Provides standardized type definitions for:
 - Control states
-- Perception results  
+- Perception results
 - Vehicle states
 - Configuration types
 """
 
-from typing import Optional, Tuple, List, Dict, Any, Union, Literal, Callable, TypeVar, TypeAlias
+from typing import Optional, Tuple, List, Dict, Any, Union, Callable, TypeVar, TypeAlias
 
 T = TypeVar('T')
 from dataclasses import dataclass
@@ -25,7 +25,7 @@ try:
 except ImportError:
     # Fallback types when CARLA is not available
     CarlaTransform = Any
-    CarlaVehicleControl = Any  
+    CarlaVehicleControl = Any
     CarlaSensor = Any
     CarlaVehicle = Any
 
@@ -67,6 +67,16 @@ class ControlCommand:
 
 
 @dataclass
+class ControlState:
+    """Control state — extended ControlCommand with target speed in km/h."""
+    steering: float = 0.0
+    throttle: float = 0.0
+    brake: float = 0.0
+    target_speed_kmh: Optional[float] = None
+    timestamp: Optional[float] = None
+
+
+@dataclass
 class PerceptionResult:
     """Result from perception pipeline"""
     cte: float  # Cross-track error in meters
@@ -80,7 +90,7 @@ class PerceptionResult:
     center_coeffs: Optional[np.ndarray] = None  # Center lane polynomial coefficients
     timestamp: float = 0.0
     processing_time: Optional[float] = None  # Processing time in seconds
-    
+
     # Visualization data
     lane_overlay: Optional[np.ndarray] = None
     bev_binary: Optional[np.ndarray] = None
@@ -91,13 +101,13 @@ class PerceptionResult:
 class MPCResult:
     """Result from MPC optimization"""
     steering: float  # Steering command
-    throttle: float  # Throttle command  
+    throttle: float  # Throttle command
     brake: float  # Brake command
     cost: float  # Optimization cost
     success: bool  # Optimization success
     solve_time: float  # Solve time in seconds
     horizon: int  # Prediction horizon used
-    
+
     # Optional detailed results
     state_trajectory: Optional[np.ndarray] = None
     control_trajectory: Optional[np.ndarray] = None

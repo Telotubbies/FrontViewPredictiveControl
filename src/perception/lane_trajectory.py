@@ -19,16 +19,17 @@ Visualization:
 from __future__ import annotations
 
 import logging
-import os
 from dataclasses import dataclass
 from typing import Optional, Tuple, List
+
+logger = logging.getLogger(__name__)
 
 import cv2
 import numpy as np
 
 # Import B-spline fitter for improved lane fitting
 try:
-    from .spline_lane_fitting import BSplineLaneFitter
+    from .spline_lane_fitting import BSplineLaneFitter  # noqa: F401
     BSPLINE_AVAILABLE = True
 except ImportError:
     BSPLINE_AVAILABLE = False
@@ -36,7 +37,6 @@ except ImportError:
 
 from .lane_clustering import cluster_lane_candidates
 from .kalman_lane_tracker import KalmanLaneTracker
-from .temporal_lane_buffer import TemporalLaneBuffer
 
 try:
     from config import (
@@ -102,8 +102,6 @@ except ImportError as e:
     MASK_CLOSE_KERNEL_LARGE = (15, 8)
     LANE_CONF_CONTINUITY_ALPHA = 0.4
     LANE_CONTINUITY_MIN_AREA_PX = 50
-
-logger = logging.getLogger(__name__)
 
 # ── Pipeline constants ──────────────────────────────────────────────────────
 LOOKAHEAD_M         = 30.0   # ระยะมองเลนข้างหน้า (m) — 30m เหมาะกับความเร็ว 25 km/h
@@ -223,7 +221,9 @@ class KalmanPoly:
     def update(self, z: np.ndarray) -> np.ndarray:
         z = np.asarray(z, dtype=np.float64).ravel()
         if not self._initialized:
-            self.x = z.copy(); self._initialized = True; return self.x.copy()
+            self.x = z.copy()
+            self._initialized = True
+            return self.x.copy()
         y = z - self.H @ self.x
         S = self.H @ self.P @ self.H.T + self.R
         try:
@@ -275,27 +275,27 @@ def create_left_lane_mask(
 ) -> np.ndarray:
     """
     Extract left lane region from full UNet mask.
-    
+
     Args:
         full_mask: Full lane mask from UNet (H x W)
         left_points: Left lane points in image coordinates (N x 2) as (row, col)
         cam_w: Camera width
         cam_h: Camera height
-    
+
     Returns:
         Left lane mask only (H x W)
     """
     if left_points is None or len(left_points) == 0:
         # No left lane detected, return empty mask
         return np.zeros_like(full_mask)
-    
+
     # Create mask for left half of image
     left_mask = np.zeros_like(full_mask)
     mid_col = cam_w // 2
-    
+
     # Copy only left half of the mask
     left_mask[:, :mid_col] = full_mask[:, :mid_col]
-    
+
     return left_mask
 
 
@@ -307,27 +307,27 @@ def create_right_lane_mask(
 ) -> np.ndarray:
     """
     Extract right lane region from full UNet mask.
-    
+
     Args:
         full_mask: Full lane mask from UNet (H x W)
         right_points: Right lane points in image coordinates (N x 2) as (row, col)
         cam_w: Camera width
         cam_h: Camera height
-    
+
     Returns:
         Right lane mask only (H x W)
     """
     if right_points is None or len(right_points) == 0:
         # No right lane detected, return empty mask
         return np.zeros_like(full_mask)
-    
+
     # Create mask for right half of image
     right_mask = np.zeros_like(full_mask)
     mid_col = cam_w // 2
-    
+
     # Copy only right half of the mask
     right_mask[:, mid_col:] = full_mask[:, mid_col:]
-    
+
     return right_mask
 
 
@@ -509,26 +509,26 @@ def is_window_outlier(
     """
     Detect if window measurement is an outlier.
     Based on Peter Moran's robust lane tracking methodology.
-    
+
     Two-stage outlier detection:
     1. Signal-to-noise ratio: pixel coverage must be >= min_coverage
     2. (Future) Kalman log likelihood check
-    
+
     Args:
         window_pixels: Number of lane pixels found in window
         search_area_pixels: Total pixels in search area
         min_coverage: Minimum pixel coverage ratio (default 0.60 = 60%)
-    
+
     Returns:
         (is_outlier, reason): True if outlier, with reason string
     """
     if window_pixels == 0:
         return True, "no_pixels"
-    
+
     coverage = window_pixels / max(search_area_pixels, 1)
     if coverage < min_coverage:
         return True, f"low_coverage_{coverage:.2f}"
-    
+
     return False, "valid"
 
 
@@ -632,11 +632,11 @@ def sliding_window_search(
         xl2 = min(w, left_peak + margin_dyn)
         raw_left_wins.append((xl1, y_lo, xl2, y_hi))  # Always add to raw (red)
         ys_l, xs_l = np.where(bev_binary[y_lo:y_hi, xl1:xl2] > 0)
-        
+
         # Outlier detection: check pixel coverage
         search_area_l = (xl2 - xl1) * (y_hi - y_lo)
         is_outlier_l, reason_l = is_window_outlier(len(ys_l), search_area_l)
-        
+
         if len(ys_l) >= min_pix_win and not is_outlier_l:
             filt_left_wins.append((xl1, y_lo, xl2, y_hi))  # Add to filtered (green)
             left_pts_px.append(np.column_stack((ys_l + y_lo, xs_l + xl1)))
@@ -648,11 +648,11 @@ def sliding_window_search(
         xr2 = min(w, right_peak + margin_dyn)
         raw_right_wins.append((xr1, y_lo, xr2, y_hi))  # Always add to raw (red)
         ys_r, xs_r = np.where(bev_binary[y_lo:y_hi, xr1:xr2] > 0)
-        
+
         # Outlier detection: check pixel coverage
         search_area_r = (xr2 - xr1) * (y_hi - y_lo)
         is_outlier_r, reason_r = is_window_outlier(len(ys_r), search_area_r)
-        
+
         if len(ys_r) >= min_pix_win and not is_outlier_r:
             filt_right_wins.append((xr1, y_lo, xr2, y_hi))  # Add to filtered (green)
             right_pts_px.append(np.column_stack((ys_r + y_lo, xs_r + xr1)))
@@ -816,7 +816,8 @@ def generate_trajectory(
         dy    = cs.derivative()(x_ref)
         d2y   = cs.derivative(2)(x_ref)
     except ImportError:
-        x_ref = x_dense; y_ref = y_dense
+        x_ref = x_dense
+        y_ref = y_dense
         dy    = np.gradient(y_dense, x_dense)
         d2y   = np.gradient(dy, x_dense)
 
@@ -843,7 +844,8 @@ def mpc_reference_output(
     if len(x_ref) < 2:
         return 0.0, 0.0, 0.0, v_nominal_ms
     idx = int(np.argmin(np.abs(x_ref)))
-    cte = float(y_ref[idx]); heading_err = float(yaw_ref[idx])
+    cte = float(y_ref[idx])
+    heading_err = float(yaw_ref[idx])
     v_at_ego = float(v_ref[idx]) if idx < len(v_ref) else v_nominal_ms
     curv_val = 0.0
     if idx < len(x_ref) - 1:
@@ -1252,46 +1254,46 @@ def _draw_simple_lane_markings(
     """
     if left_coeffs is None and right_coeffs is None:
         return rgb
-    
+
     img = rgb.copy()
-    
+
     def draw_lane_from_poly(coeffs, color=(255, 255, 255), thickness=3):
         if coeffs is None:
             return
-        
+
         # Sample points along polynomial in vehicle frame
         x_m = np.linspace(0, lookahead_m, 100)
         y_m = np.polyval(coeffs, x_m)
-        
+
         # Convert to BEV pixels
         rows = bev_h - 1 - (x_m / lookahead_m * (bev_h - 1))
         cols = (bev_w - 1) / 2.0 + (y_m / (2.0 * half_width_m) * (bev_w - 1))
-        
+
         # BEV to camera transform
         pts_bev = np.stack([cols, rows, np.ones_like(cols)], axis=1)
         pts_cam = (M_inv @ pts_bev.T).T
         pts_cam = pts_cam[:, :2] / (pts_cam[:, 2:3] + 1e-8)
-        
+
         # Filter valid points
         valid = (
             (pts_cam[:, 0] >= 0) & (pts_cam[:, 0] < cam_w) &
             (pts_cam[:, 1] >= 0) & (pts_cam[:, 1] < cam_h)
         )
-        
+
         if not np.any(valid):
             return
-        
+
         pts = pts_cam[valid].astype(np.int32)
         if len(pts) < 2:
             return
-        
+
         # Draw white line
         cv2.polylines(img, [pts], False, color, thickness, cv2.LINE_AA)
-    
+
     # Draw left and right lane boundaries
     draw_lane_from_poly(left_coeffs)
     draw_lane_from_poly(right_coeffs)
-    
+
     return img
 
 
@@ -1315,13 +1317,13 @@ def _draw_lane_overlay_direct(
     """
     Direct perspective lane overlay - renders polygon directly in camera view.
     No BEV intermediate step, resulting in perspective-correct overlay that sticks to road.
-    
+
     Method:
     1. Sample points along left/right lane polynomials in vehicle frame
     2. Convert vehicle (x,y) → BEV pixels
     3. Use M_inv to warp BEV pixels → camera pixels
     4. Draw filled polygon directly in camera view
-    
+
     Args:
         rgb: Original camera image (RGB)
         left_coeffs: Left lane polynomial coefficients
@@ -1335,28 +1337,27 @@ def _draw_lane_overlay_direct(
         alpha: Transparency (0=transparent, 1=opaque)
         center_coeffs: Optional center line coefficients
         max_x_m: Optional max distance cutoff
-    
+
     Returns:
         RGB image with lane overlay
     """
     if left_coeffs is None or right_coeffs is None:
         return rgb
-    
+
     overlay_bgr = cv2.cvtColor(rgb.copy(), cv2.COLOR_RGB2BGR)
     fill_bgr = (fill_color[2], fill_color[1], fill_color[0])  # RGB to BGR
-    yellow_bgr = (0, 255, 255)  # Yellow boundaries in BGR
-    
+
     # Determine draw distance
     draw_to = min(lookahead_m, max_x_m) if max_x_m is not None else lookahead_m
-    
+
     # Sample dense points along lanes for smooth curves
     n_pts = 150  # Dense sampling for perspective-correct smooth rendering
     x_m = np.linspace(0, draw_to, n_pts)
-    
+
     # Evaluate polynomials in vehicle frame
     y_left = np.polyval(left_coeffs, x_m)
     y_right = np.polyval(right_coeffs, x_m)
-    
+
     # Convert vehicle coordinates to BEV pixels
     rows_l, cols_l = _vehicle_xy_to_bev_px(
         x_m, y_left, bev_h, bev_w, lookahead_m, half_width_m
@@ -1364,19 +1365,19 @@ def _draw_lane_overlay_direct(
     rows_r, cols_r = _vehicle_xy_to_bev_px(
         x_m, y_right, bev_h, bev_w, lookahead_m, half_width_m
     )
-    
+
     # Create homogeneous coordinates for BEV points
     bev_pts_left = np.stack([cols_l, rows_l, np.ones_like(cols_l)], axis=1)
     bev_pts_right = np.stack([cols_r, rows_r, np.ones_like(cols_r)], axis=1)
-    
+
     # Warp to camera space using M_inv (BEV → camera perspective)
     cam_pts_left = (M_inv @ bev_pts_left.T).T
     cam_pts_right = (M_inv @ bev_pts_right.T).T
-    
+
     # Normalize homogeneous coordinates
     cam_pts_left = cam_pts_left[:, :2] / (cam_pts_left[:, 2:3] + 1e-8)
     cam_pts_right = cam_pts_right[:, :2] / (cam_pts_right[:, 2:3] + 1e-8)
-    
+
     # Filter points within camera bounds
     mask_l = (
         (cam_pts_left[:, 0] >= 0) & (cam_pts_left[:, 0] < cam_w) &
@@ -1386,18 +1387,18 @@ def _draw_lane_overlay_direct(
         (cam_pts_right[:, 0] >= 0) & (cam_pts_right[:, 0] < cam_w) &
         (cam_pts_right[:, 1] >= 0) & (cam_pts_right[:, 1] < cam_h)
     )
-    
+
     if not (np.any(mask_l) and np.any(mask_r)):
         return rgb
-    
+
     # Build polygon: left points + reversed right points
     left_pts = cam_pts_left[mask_l].astype(np.int32)
     right_pts = cam_pts_right[mask_r].astype(np.int32)
-    
+
     # Draw lane markings that match actual road markings
     blended = overlay_bgr.copy()
     white_bgr = (255, 255, 255)  # White for lane markings
-    
+
     # Helper function to draw dashed line (like real lane markings)
     def draw_dashed_line(img, pts, color, thickness=4, dash_length=20, gap_length=10):
         """Draw dashed line to match real road lane markings"""
@@ -1410,8 +1411,7 @@ def _draw_lane_overlay_direct(
             dist = np.linalg.norm(p2 - p1)
             segments.append((p1, p2, dist))
             total_length += dist
-        
-        current_pos = 0
+
         draw_dash = True
         for p1, p2, seg_dist in segments:
             if seg_dist < 1:
@@ -1429,15 +1429,15 @@ def _draw_lane_overlay_direct(
                 else:
                     local_pos += gap_length
                     draw_dash = True
-    
+
     # Draw left lane marking (white dashed line)
     if len(left_pts) >= 2:
         draw_dashed_line(blended, left_pts, white_bgr, thickness=3, dash_length=30, gap_length=15)
-    
+
     # Draw right lane marking (white dashed line)
     if len(right_pts) >= 2:
         draw_dashed_line(blended, right_pts, white_bgr, thickness=3, dash_length=30, gap_length=15)
-    
+
     # Optional: Draw semi-transparent lane area (ช่องใหญ่) with very low alpha
     if len(left_pts) >= 2 and len(right_pts) >= 2:
         polygon = np.vstack([left_pts, right_pts[::-1]])
@@ -1452,7 +1452,7 @@ def _draw_lane_overlay_direct(
             (1 - lane_area_alpha) * blended[fill_mask > 0].astype(np.float32)
         )
         blended = blended.astype(np.uint8)
-    
+
     # Optional: Draw center line if provided
     if center_coeffs is not None:
         y_center = np.polyval(center_coeffs, x_m)
@@ -1470,7 +1470,7 @@ def _draw_lane_overlay_direct(
             center_pts = cam_pts_center[mask_c].astype(np.int32)
             if len(center_pts) >= 2:
                 cv2.polylines(blended, [center_pts.reshape(-1, 1, 2)], False, (0, 255, 0), 3, cv2.LINE_AA)
-    
+
     return cv2.cvtColor(blended.astype(np.uint8), cv2.COLOR_BGR2RGB)
 
 
@@ -1526,10 +1526,9 @@ class LaneTrajectoryPipeline:
             logger.info("Using Classical Lane Detector (color thresholding, no GPU)")
         else:
             # Default: use UNet detector
-            from .lane_detector import LaneDetector
             self.detector = detector  # Will be set by caller
             logger.warning("No detector provided, must be set externally")
-        
+
         self.use_classical = use_classical_detector
         self.lightweight_vis = lightweight_vis
         self.cam_w       = cam_w
@@ -1613,10 +1612,10 @@ class LaneTrajectoryPipeline:
     # ── Image → Ground projection (rotation matrix + ray intersection) ───
     def _image_to_ground(self, rows: np.ndarray, cols: np.ndarray) -> Tuple[np.ndarray, np.ndarray]:
         """Project image pixels (row, col) to vehicle ground plane (x_forward, y_lateral).
-        
+
         Uses rotation matrix for exact camera geometry.
         Ray from camera through pixel intersects ground plane (Z=0).
-        
+
         Returns: (x_ground, y_ground) in vehicle frame [meters]
           x = forward distance, y = lateral (positive = right)
         """
@@ -1624,11 +1623,11 @@ class LaneTrajectoryPipeline:
         cx, cy = self._cam_cx, self._cam_cy
         h_cam = self._cam_height
         R_c2v = self._R_c2v  # camera → vehicle rotation
-        
+
         n = len(rows)
         x_ground = np.full(n, -1.0)
         y_ground = np.full(n, 0.0)
-        
+
         # Normalized image coords → ray direction in camera frame
         nx = (cols - cx) / f
         ny = (rows - cy) / f
@@ -1638,41 +1637,41 @@ class LaneTrajectoryPipeline:
         d_veh_x = R_c2v[0, 0] * nx + R_c2v[0, 1] * ny + R_c2v[0, 2]
         d_veh_y = R_c2v[1, 0] * nx + R_c2v[1, 1] * ny + R_c2v[1, 2]
         d_veh_z = R_c2v[2, 0] * nx + R_c2v[2, 1] * ny + R_c2v[2, 2]
-        
+
         # Ground intersection: camera_pos + t * d_veh, z=0
         # h_cam + t * d_veh_z = 0  =>  t = -h_cam / d_veh_z
         valid = d_veh_z < -0.001  # ray must point downward
         t = np.where(valid, -h_cam / d_veh_z, 0.0)
-        
+
         x_ground = np.where(valid, t * d_veh_x, -1.0)
         y_ground = np.where(valid, t * d_veh_y, 0.0)
-        
+
         return x_ground, y_ground
 
     def _ground_to_image(self, x_ground: np.ndarray, y_ground: np.ndarray) -> Tuple[np.ndarray, np.ndarray]:
         """Project vehicle ground plane (x_forward, y_lateral) back to image pixels (row, col).
-        
+
         Uses rotation matrix for exact inverse of _image_to_ground.
         """
         f = self._cam_f
         cx, cy = self._cam_cx, self._cam_cy
         h_cam = self._cam_height
         R_v2c = self._R_v2c  # vehicle → camera rotation
-        
+
         # Vector from camera to ground point in vehicle frame: (x, y, -h_cam)
         vx = x_ground
         vy = y_ground
         vz = np.full_like(x_ground, -h_cam)
-        
+
         # Transform to camera frame
         X_cam = R_v2c[0, 0] * vx + R_v2c[0, 1] * vy + R_v2c[0, 2] * vz
         Y_cam = R_v2c[1, 0] * vx + R_v2c[1, 1] * vy + R_v2c[1, 2] * vz
         Z_cam = R_v2c[2, 0] * vx + R_v2c[2, 1] * vy + R_v2c[2, 2] * vz
-        
+
         valid = Z_cam > 0.1
         cols = np.where(valid, cx + f * X_cam / Z_cam, -1.0)
         rows = np.where(valid, cy + f * Y_cam / Z_cam, -1.0)
-        
+
         return rows, cols
 
     # ── Phase 1: Lane mask (pixel) ─────────────────────────────────────────
@@ -1696,31 +1695,31 @@ class LaneTrajectoryPipeline:
     def _phase2_bev_and_quality(self, mask: np.ndarray) -> Tuple[np.ndarray, str]:
         """P2: mask → project lane pixels to ground plane. No BEV image created."""
         ys, xs = np.where(mask > 0)
-        
+
         if len(ys) < MIN_PX_TOTAL:
             self._ground_x = np.array([])
             self._ground_y = np.array([])
             self._img_rows = np.array([])
             self._img_cols = np.array([])
             return self._empty_bev, "invalid"
-        
+
         # Project image pixels to vehicle ground plane
         ground_x, ground_y = self._image_to_ground(ys.astype(np.float64), xs.astype(np.float64))
-        
+
         # Filter: keep only points in valid range
         valid = (ground_x > 0.5) & (ground_x < self.lookahead_m) & \
                 (np.abs(ground_y) < HALF_WIDTH_M) & np.isfinite(ground_x) & np.isfinite(ground_y)
         with np.errstate(divide='ignore', invalid='ignore'):
             angle_ratio = np.abs(ground_y) / np.maximum(ground_x, 0.1)
         valid = valid & (angle_ratio < 1.5)
-        
+
         n_valid = np.count_nonzero(valid)
-        
+
         self._ground_x = ground_x[valid] if n_valid > 0 else np.array([])
         self._ground_y = ground_y[valid] if n_valid > 0 else np.array([])
         self._img_rows = ys[valid] if n_valid > 0 else np.array([])
         self._img_cols = xs[valid] if n_valid > 0 else np.array([])
-        
+
         quality = "valid" if n_valid >= MIN_PX_TOTAL else ("degraded" if n_valid >= 50 else "invalid")
         return self._empty_bev, quality
 
@@ -1733,7 +1732,7 @@ class LaneTrajectoryPipeline:
         str, str,  # p2_case, p3_case
     ]:
         """P3: Use ground-projected points from P2 to find left/right lanes and fit polynomials.
-        
+
         Instead of sliding window on BEV, we:
         1. Split ground points into left (y < 0) and right (y > 0) groups
         2. Cluster each side to find the dominant lane line
@@ -1758,10 +1757,10 @@ class LaneTrajectoryPipeline:
         # Split into left (y < 0) and right (y > 0)
         left_mask = gy < -0.3   # at least 30cm to the left
         right_mask = gy > 0.3   # at least 30cm to the right
-        
+
         left_x, left_y = gx[left_mask], gy[left_mask]
         right_x, right_y = gx[right_mask], gy[right_mask]
-        
+
         # Fit polynomials: y = a*x^2 + b*x + c
         def fit_lane(x_pts, y_pts, label):
             if len(x_pts) < MIN_POINTS_POLY:
@@ -1774,16 +1773,16 @@ class LaneTrajectoryPipeline:
                 return coeffs
             except (np.linalg.LinAlgError, ValueError):
                 return None
-        
+
         c_l = fit_lane(left_x, left_y, "left")
         c_r = fit_lane(right_x, right_y, "right")
-        
+
         # Build pixel arrays for visualization (image-space coords)
         if c_l is not None and len(self._img_rows[left_mask]) > 0:
             left_px = np.column_stack((self._img_rows[left_mask], self._img_cols[left_mask]))
         if c_r is not None and len(self._img_rows[right_mask]) > 0:
             right_px = np.column_stack((self._img_rows[right_mask], self._img_cols[right_mask]))
-        
+
         # Determine center coefficients
         if c_l is not None and c_r is not None:
             center_raw = (c_l + c_r) / 2.0
@@ -2010,7 +2009,7 @@ class LaneTrajectoryPipeline:
             rgb, mask, bev_bin, left_px, right_px, filt_left_wins, filt_right_wins,
             c_l_fit, c_r_fit, center_coeffs,
         )
-        
+
         # Store windows for Peter Moran visualization
         self._raw_left_wins = raw_left_wins
         self._raw_right_wins = raw_right_wins
@@ -2089,14 +2088,18 @@ def visualize_pipeline(
     import matplotlib.pyplot as plt
 
     fig, axes = plt.subplots(4, 1, figsize=(7, 16))
-    axes[0].imshow(rgb);                      axes[0].set_title("Original Frame")
-    axes[1].imshow(output.bev_binary, cmap="gray"); axes[1].set_title("Warped Frame")
+    axes[0].imshow(rgb)
+    axes[0].set_title("Original Frame")
+    axes[1].imshow(output.bev_binary, cmap="gray")
+    axes[1].set_title("Warped Frame")
     axes[2].imshow(cv2.cvtColor(output.bev_window_vis, cv2.COLOR_BGR2RGB))
     axes[2].set_title("Warped Frame With Search Window")
     if output.lane_overlay is not None:
-        axes[3].imshow(output.lane_overlay); axes[3].set_title("Original Frame With Lane Overlay")
+        axes[3].imshow(output.lane_overlay)
+        axes[3].set_title("Original Frame With Lane Overlay")
     else:
-        axes[3].imshow(rgb);                 axes[3].set_title("Original Frame (no overlay)")
+        axes[3].imshow(rgb)
+        axes[3].set_title("Original Frame (no overlay)")
 
     for ax in axes:
         ax.axis("on")

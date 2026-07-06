@@ -7,7 +7,6 @@ from .qt_compat import (
     QMainWindow,
     QWidget,
     QVBoxLayout,
-    QHBoxLayout,
     QLabel,
     QStatusBar,
     QSplitter,
