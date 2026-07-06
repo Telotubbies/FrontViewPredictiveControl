@@ -37,6 +37,7 @@ from safety.aeb_acc import AEBACC
 from adas.adas_manager import ADASManager
 from bridge.obstacles import get_traffic_obstacles
 from carla_io import get_waypoints, waypoints_to_cte_heading
+from telemetry.influxdb_exporter import TelemetryExporter
 from config import (
     TARGET_SPEED_KMH, USE_TRAJECTORY_PIPELINE,
     CONTROL_HZ, MAIN_LOOP_SLEEP_S
@@ -66,6 +67,7 @@ class CARLAMPCSystem:
         self.stuck_recovery: Optional[StuckRecovery] = None
         self.aeb_acc: Optional[AEBACC] = None
         self.adas: Optional[ADASManager] = None
+        self.telemetry: Optional[TelemetryExporter] = None
 
         # Control state (persisted between frames for smoothing)
         self._prev_steer = 0.0
@@ -122,6 +124,7 @@ class CARLAMPCSystem:
             self.stuck_recovery = StuckRecovery()
             self.aeb_acc = AEBACC()
             self.adas = ADASManager(aeb_acc=self.aeb_acc)
+            self.telemetry = TelemetryExporter(enabled=True)
 
             logger.info("System initialization completed — Full ADAS suite active")
             return True
@@ -251,6 +254,32 @@ class CARLAMPCSystem:
                 except Exception as e:
                     logger.debug(f"ADAS update skipped: {e}")
 
+                # ── Telemetry export ───────────────────────────────────
+                if self.telemetry and self.telemetry.is_connected():
+                    try:
+                        self.telemetry.export_frame(
+                            vehicle={
+                                "speed_ms": current_speed_ms,
+                                "speed_kmh": current_speed_ms * 3.6,
+                                "steering": steer,
+                                "throttle": throttle,
+                                "brake": brake,
+                            },
+                            lane={
+                                "cte_m": frame_state.cte_m if frame_state else 0.0,
+                                "heading_err_rad": frame_state.heading_rad if frame_state else 0.0,
+                                "curvature": frame_state.curvature if frame_state else 0.0,
+                                "lane_conf": frame_state.lane_conf if frame_state else 0.0,
+                            },
+                            adas_out=adas_out if 'adas_out' in dir() else None,
+                            performance={
+                                "fps": 1.0 / self._loop_times[-1] if self._loop_times else 0.0,
+                                "loop_time_ms": (self._loop_times[-1] * 1000) if self._loop_times else 0.0,
+                            },
+                        )
+                    except Exception as e:
+                        logger.debug(f"Telemetry export skipped: {e}")
+
                 # Apply control to vehicle
                 carla_control = self.carla.get_vehicle_control()
                 carla_control.steering = steer
@@ -367,6 +396,10 @@ class CARLAMPCSystem:
         """Cleanup all system resources"""
         try:
             logger.info("Cleaning up system resources...")
+
+            # Close telemetry exporter
+            if self.telemetry:
+                self.telemetry.close()
 
             # Stop camera
             if self.carla and self.carla.camera:
