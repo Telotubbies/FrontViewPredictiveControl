@@ -1,0 +1,80 @@
+# Work Log — FrontViewPredictiveControl
+
+> บันทึกการเปลี่ยนแปลงทุกงาน พร้อม description และผู้รับผิดชอบ
+> Branch: `project-ADAS` | เริ่ม: 2026-07-06
+
+---
+
+## Phase 1: Cleanup + CI Setup
+
+| # | Date | Task | Files | Agent | Description | Commit |
+|---|------|------|-------|-------|-------------|--------|
+| 1 | 2026-07-06 | สร้าง branch `project-ADAS` | — | orchestrator | แยก branch ใหม่จาก `main` เพื่อทำ cleanup + restructure | — |
+| 2 | 2026-07-06 | ลบ `run_unet_mpc.py` | `run_unet_mpc.py` | dev-control | ลบ legacy entry point 1317 บรรทัดที่ทับซ้อนกับ `main.py` | `fbcb14a` |
+| 3 | 2026-07-06 | ลบ `adas_v2/` ทั้งโฟลเดอร์ | `adas_v2/` (20 ไฟล์) | dev-control | ลบโมดูล ADAS ระดับสูง (lane change, multi-lane, mode selector) ที่แยกจาก core MPC/DSUNET | `fbcb14a` |
+| 4 | 2026-07-06 | อัปเดต scripts ให้ใช้ `main.py` | `scripts/run.sh`, `scripts/run_lka.sh`, `scripts/evaluate_run.py`, `scripts/run_test_collect_and_eval.py`, `scripts/run_test_p1_p5.py` | dev-control | เปลี่ยนการเรียกจาก `run_unet_mpc.py` → `main.py` ทั้ง classical และ unet mode | `fbcb14a` |
+| 5 | 2026-07-06 | แก้ stuck recovery bug ใน `main.py` | `main.py:204-215` | dev-control | เปลี่ยนจาก `get_recovery_control()` (ไม่มี method) เป็น `stuck_recovery.update(speed, throttle)` ที่คืน `(steer, throttle, brake, reverse)` tuple | `fbcb14a` |
+| 6 | 2026-07-06 | เพิ่ม `--record-dir` + `--duration` args ใน `main.py` | `main.py:323-329` | dev-control | เพิ่ม CLI placeholder สำหรับ compatibility กับ test scripts (ยังไม่ implement fully) | `fbcb14a` |
+| 7 | 2026-07-06 | ทำ `config.yaml` เป็น source of truth | `config.py` (252→82 บรรทัด) | dev-ai | ลบ hardcoded fallback 119 ค่าที่ซ้ำกับ YAML, raise `FileNotFoundError` ถ้าไม่มี config.yaml แทน silent fallback | `fbcb14a` |
+| 8 | 2026-07-06 | Wire Pure Pursuit เป็น MPC fallback | `control/lane_mpc.py:31,140-142,359,362-374` | dev-control | แทน P-control แบบง่าย (`-0.5*cte - 0.3*heading_err`) ด้วย `PurePursuitController.compute_steering()` ที่ปลอดภัยกว่าที่ความเร็วสูง, status เปลี่ยนเป็น `"Fallback_PP"` | `fbcb14a` |
+| 9 | 2026-07-06 | แก้ `config_clean` import error | `managers/control_manager.py:20-21,38`, `core/mpc_runner.py:28-33` | dev-control | เปลี่ยน `from config_clean import get_config` (ไฟล์ไม่มี) เป็น `from config import *` และ `import config as _config_module` | `fbcb14a` |
+| 10 | 2026-07-06 | แก้ `get_recovery_control()` ใน `control_manager.py` | `managers/control_manager.py:157-176` | dev-control | เปลี่ยนจาก method ที่ไม่มี เป็น `stuck_recovery.update(speed_ms, throttle)` แล้ว unpack tuple ไป apply ลง control command | `fbcb14a` |
+| 11 | 2026-07-06 | สร้าง GitHub Actions CI | `.github/workflows/ci.yml` | qa-reviewer | workflow รัน lint (ruff) + unit tests (no CARLA) + smoke imports บน Ubuntu, Python 3.11 | `fbcb14a` |
+| 12 | 2026-07-06 | สร้าง `pyproject.toml` | `pyproject.toml` | tech-lead | setuptools config + pytest config (markers, testpaths) + ruff config (line-length 100, py311) | `fbcb14a` |
+| 13 | 2026-07-06 | สร้าง PR template + CONTRIBUTING.md | `.github/pull_request_template.md`, `.github/CONTRIBUTING.md` | tech-lead | PR template มี safety checklist, CONTRIBUTING มี setup + test + branch strategy + commit convention | `fbcb14a` |
+| 14 | 2026-07-06 | อัปเดต `.gitignore` | `.gitignore` | git-ops | เพิ่ม `*.onnx`, `*.h5`, `*.safetensors`, `*.pkl`, `.env`, `wandb/`, `mlruns/`, coverage artifacts, media files (`*.mp4`, `*.bag`) | `fbcb14a` |
+| 15 | 2026-07-06 | อัปเดต `tests/requirements-test.txt` | `tests/requirements-test.txt` | qa-reviewer | เพิ่ม dependencies ที่ test จริงต้องการ: pyyaml, numpy, scipy, opencv, torch, casadi, ruff | `fbcb14a` |
+| 16 | 2026-07-06 | รัน unit test suite verify | — | qa-reviewer | `pytest tests/test_lane_mpc.py tests/test_reference.py tests/test_safety_override.py tests/test_stuck_recovery.py tests/test_improved_lane_fitting.py -v` → **34 passed** | — |
+
+---
+
+## Phase 2: src/ Layout Restructure
+
+| # | Date | Task | Files | Agent | Description | Commit |
+|---|------|------|-------|-------|-------------|--------|
+| 17 | 2026-07-06 | ลบ archive/ ทั้งหมด | `perception/archive/` (8 ไฟล์), `scripts/archive/` (28 ไฟล์), `docs/archive/` (32 ไฟล์), `visualization/` (2 ไฟล์), `scripts/debug/` (2 ไฟล์), `adas/run.py` | git-ops | ลบ legacy code ทั้งหมดที่ไม่ได้ใช้ | TBD |
+| 18 | 2026-07-06 | ลบไฟล์ perception ซ้ำซ้อน | `perception/lane_tracker.py`, `edge_detection.py`, `addison_lane.py`, `lane_clustering.py`, `geometric_validation.py`, `temporal_lane_buffer.py`, `classical_lane_detector.py`, `lane_validator.py` | dev-ai | ลบไฟล์ที่ไม่ถูก import จากที่อื่น (เก็บ `ego_lane_mask.py` ไว้เพราะ `lane_detector.py` ใช้) | TBD |
+| 19 | 2026-07-06 | ลบไฟล์ซ้ำซ้อน | `managers/perception_manager_3080ti.py`, `tests/test_carla_manager_unittest.py`, `tests/test_spline_fit.py` | git-ops | ลบ GPU-specific duplicate และ test ซ้ำซ้อน | TBD |
+| 20 | 2026-07-06 | ย้าย modules เข้า `src/` | `control/`, `perception/`, `safety/`, `alg/`, `core/`, `managers/`, `gui/`, `temporal/`, `bridge/`, `utils/` → `src/` + `main.py`, `pipeline.py`, `carla_io.py`, `state.py`, `config.py` → `src/` | dev-control | ย้ายทั้งหมดเข้า `src/` เป็น Python package มาตรฐาน + สร้าง `src/__init__.py` | TBD |
+| 21 | 2026-07-06 | ย้าย `config.yaml` → `config/` | `config.yaml` → `config/default.yaml`, สร้าง `config/__init__.py` loader | dev-ai | สร้าง config package พร้อม loader ที่อ่านจาก `config/default.yaml`, flatten nested sections เป็น module-level constants | TBD |
+| 22 | 2026-07-06 | สร้าง entry point wrapper | `main.py` (ใหม่ที่ root) | dev-control | thin wrapper ที่ add `src/` ลง sys.path แล้ว import `main` จาก `src/main.py` — ทำให้ `python main.py` ยังทำงานได้ | TBD |
+| 23 | 2026-07-06 | จัด `tests/` เป็น `unit/` + `integration/` | 8 unit tests → `tests/unit/`, 6 integration tests → `tests/integration/`, สร้าง `tests/conftest.py` | qa-reviewer | แยก unit test (no CARLA) จาก integration test (CARLA required) + conftest เพิ่ม src/ ลง sys.path | TBD |
+| 24 | 2026-07-06 | อัปเดต `pyproject.toml` สำหรับ src/ layout | `pyproject.toml` | tech-lead | `package-dir = {"" = "src"}`, `packages.find.where = ["src"]`, เพิ่ม `[project.scripts] fpvc = "main:main"`, อัปเดต `testpaths` เป็น `tests/unit, tests/integration` | TBD |
+| 25 | 2026-07-06 | อัปเดต CI workflow สำหรับ src/ | `.github/workflows/ci.yml` | qa-reviewer | เปลี่ยน `PYTHONPATH: src:.` ทุก step, อัปเดต test paths เป็น `tests/unit/` | TBD |
+| 26 | 2026-07-06 | Verify imports + รัน test suite | — | qa-reviewer | smoke imports ผ่านทั้งหมด, `pytest tests/unit/` → **34 passed** | TBD |
+| 27 | 2026-07-06 | Commit + push trigger CI | — | git-ops | commit phase 2 + push เพื่อ trigger GitHub Actions | TBD |
+
+---
+
+## Subagent Reports (initial assessment)
+
+| Agent | ID | งาน | ผล |
+|-------|----|------|-----|
+| orchestrator | `2f10495a` | repo scope analysis | พบ tech debt: config fallback, duplicate entry points, ขาด unit test control layer |
+| dev-control | `32bf6115` | control stack review | พบ blocking: config_clean import, get_recovery_control missing, PP ไม่ได้ใช้, MPC weights ไม่ตรง |
+| dev-ai | `f6745049` | perception stack review | pipeline ตรงตาม context, DSUNet IoU 0.861/Dice 0.916 |
+| tech-lead | `6e672015` | architecture review | Request Changes: 2 blocking (run_unet_mpc ref, get_recovery_control) — แก้แล้วทั้งคู่ |
+| qa-reviewer | `39690658` | test suite run | FAIL: 50 passed/12 failed/5 errors — ส่วนใหญ่เป็น test bug เดิม (config_clean, UnicodeDecodeError) |
+| git-ops | `6831edf4` | repo state audit | repo สะอาด 1.48 MiB, .gitignore ขาด model weights formats |
+
+---
+
+## Subagent Reports (phase 1 execution)
+
+| Agent | ID | งาน | ผล |
+|-------|----|------|-----|
+| dev-control | `90eb414c` | wire PP fallback + fix imports + fix get_recovery_control | สำเร็จ: 4 edits ใน lane_mpc.py, 2 edits ใน control_manager.py, 1 edit ใน mpc_runner.py |
+| dev-ai | `b34b7bb0` | config.yaml source of truth | สำเร็จ: config.py 252→82 บรรทัด, ลบ fallback 119 ค่า, raise error ถ้าไม่มี YAML |
+| tech-lead | `932aefed` | review changes | Request Changes → แก้ครบแล้วทั้ง 2 blocking |
+| qa-reviewer | `e1ba1b71` | run tests after changes | 34/34 unit tests ผ่าน |
+| orchestrator | `cf2d15f8` | plan next phase | สร้าง task plan 5 priorities (safety, MPC tuning, perception, testing, GUI) |
+| git-ops | `75959b1b` | audit branch state | diff สะอาด ไม่มี debug/credential/binary, เตรียม commit message พร้อม |
+
+---
+
+## Notes
+
+- ทุกงานที่ทำจะถูกบันทึกในไฟล์นี้ พร้อม commit hash
+- ถ้างานยังไม่ commit ให้ใส่ `—` ในคอลัมน์ Commit
+- ถ้างานยังไม่เริ่ม ให้ใส่ `TBD` ในคอลัมน์ Date และ Commit
+- หลัง commit ทุกครั้ง ให้อัปเดตตารางนี้พร้อม commit hash

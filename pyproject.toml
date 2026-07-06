@@ -41,12 +41,14 @@ gpu = [
 [project.urls]
 Repository = "https://github.com/Telotubbies/FrontViewPredictiveControl"
 
+[project.scripts]
+fpvc = "main:main"
+
 [tool.setuptools]
-# Flat layout — modules at repo root (will migrate to src/ in next phase)
-py-modules = ["config", "main", "pipeline", "carla_io", "state"]
+package-dir = { "" = "src" }
 
 [tool.setuptools.packages.find]
-where = ["."]
+where = ["src"]
 include = [
     "control*",
     "perception*",
@@ -58,13 +60,16 @@ include = [
     "temporal*",
     "bridge*",
     "utils*",
-    "dsunet_training*",
 ]
-exclude = ["tests*", "scripts*", "docs*", "agent*", "archive*"]
+exclude = ["tests*", "scripts*", "docs*", "agent*"]
+
+[tool.setuptools.py-modules]
+# Standalone modules at src/ root (not packages)
+# These are picked up automatically by find since they're in src/
 
 [tool.pytest.ini_options]
 minversion = "7.0"
-testpaths = ["tests"]
+testpaths = ["tests/unit", "tests/integration"]
 python_files = ["test_*.py"]
 python_classes = ["Test*"]
 python_functions = ["test_*"]
@@ -85,6 +90,7 @@ filterwarnings = [
 [tool.ruff]
 line-length = 100
 target-version = "py311"
+src = ["src", "tests"]
 
 [tool.ruff.lint]
 select = ["E", "F", "W", "I", "UP"]

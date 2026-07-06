@@ -44,12 +44,14 @@ jobs:
           pip install torch --index-url https://download.pytorch.org/whl/cpu
           pip install casadi
 
-      - name: Verify config.yaml loads
+      - name: Verify config loads
         run: |
-          python -c "import yaml; yaml.safe_load(open('config.yaml', encoding='utf-8')); print('config.yaml OK')"
-          python -c "import config; print('config.py OK — MPC_DT=', config.MPC_DT)"
+          python -c "import yaml; yaml.safe_load(open('config/default.yaml', encoding='utf-8')); print('config/default.yaml OK')"
+          PYTHONPATH=src:. python -c "import config; print('config OK — MPC_DT=', config.MPC_DT)"
 
       - name: Smoke imports (no CARLA)
+        env:
+          PYTHONPATH: src:.
         run: |
           python -c "from control.lane_mpc import LaneMPC, MPCConfig; print('control.lane_mpc OK')"
           python -c "from control.pure_pursuit import PurePursuitController; print('control.pure_pursuit OK')"
@@ -60,16 +62,16 @@ jobs:
 
       - name: Run unit tests (no CARLA required)
         env:
-          PYTHONPATH: ${{ github.workspace }}
+          PYTHONPATH: src:.
         run: |
-          pytest tests/test_lane_mpc.py tests/test_reference.py tests/test_safety_override.py tests/test_stuck_recovery.py tests/test_improved_lane_fitting.py -v --tb=short
+          pytest tests/unit/test_lane_mpc.py tests/unit/test_reference.py tests/unit/test_safety_override.py tests/unit/test_stuck_recovery.py tests/unit/test_improved_lane_fitting.py -v --tb=short
 
       - name: Run config/pipeline tests (may have known failures)
         env:
-          PYTHONPATH: ${{ github.workspace }}
+          PYTHONPATH: src:.
         continue-on-error: true
         run: |
-          pytest tests/test_config_only.py tests/test_basic_functionality.py tests/test_pipeline.py -v --tb=short
+          pytest tests/unit/test_config_only.py tests/unit/test_basic_functionality.py tests/unit/test_pipeline.py -v --tb=short
 
       - name: Upload test results
         if: always()
