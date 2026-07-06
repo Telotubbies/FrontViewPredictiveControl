@@ -120,7 +120,7 @@
 | 8 | tech-lead | Review metrics system | — | Reviewed diff: clean module, no cross-layer violations, backward compatible, no blocking calls in main loop | approved |
 | 9 | qa-reviewer | Write MetricsCollector tests | `tests/unit/test_metrics_collector.py` | 14 tests: FrameMetrics defaults, record/save/summary/reset, fallback counting, phase rates, safety metrics, run_metrics analysis | 14/14 passed |
 | 10 | qa-reviewer | Full test suite + lint | — | 644 passed, 0 failed, ruff clean | ready for delivery |
-| 11 | git-ops | Commit + push + WORKLOG | — | Commit all Sprint 7 changes | — |
+| 11 | git-ops | Commit + push + WORKLOG | `4be6b66` | Commit all Sprint 7 changes, pushed to project-ADAS | done |
 
 ### Metrics Captured (per frame, saved to CSV + JSON)
 
