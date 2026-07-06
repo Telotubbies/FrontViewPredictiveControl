@@ -14,7 +14,7 @@
         "overrides": []
       },
       "targets": [{
-        "query": "from(bucket: \"adas_telemetry\") |> range(start: -1m) |> filter(fn: (r) => r._measurement == \"vehicle\" and r._field == \"speed_kmh\") |> last()",
+        "query": 'from(bucket: "adas_telemetry") |> range(start: -1m) |> filter(fn: (r) => r._measurement == "vehicle" and r._field == "speed_kmh") |> last()',
         "refId": "A"
       }]
     },
@@ -27,7 +27,7 @@
         "overrides": []
       },
       "targets": [{
-        "query": "from(bucket: \"adas_telemetry\") |> range(start: -1m) |> filter(fn: (r) => r._measurement == \"vehicle\" and r._field == \"steering\") |> last()",
+        "query": 'from(bucket: "adas_telemetry") |> range(start: -1m) |> filter(fn: (r) => r._measurement == "vehicle" and r._field == "steering") |> last()',
         "refId": "A"
       }]
     },
@@ -40,7 +40,7 @@
         "overrides": []
       },
       "targets": [{
-        "query": "from(bucket: \"adas_telemetry\") |> range(start: -1m) |> filter(fn: (r) => r._measurement == \"vehicle\" and r._field == \"throttle\") |> last()",
+        "query": 'from(bucket: "adas_telemetry") |> range(start: -1m) |> filter(fn: (r) => r._measurement == "vehicle" and r._field == "throttle") |> last()',
         "refId": "A"
       }]
     },
@@ -53,7 +53,7 @@
         "overrides": []
       },
       "targets": [{
-        "query": "from(bucket: \"adas_telemetry\") |> range(start: -1m) |> filter(fn: (r) => r._measurement == \"vehicle\" and r._field == \"brake\") |> last()",
+        "query": 'from(bucket: "adas_telemetry") |> range(start: -1m) |> filter(fn: (r) => r._measurement == "vehicle" and r._field == "brake") |> last()',
         "refId": "A"
       }]
     },
@@ -71,7 +71,7 @@
         "overrides": []
       },
       "targets": [{
-        "query": "from(bucket: \"adas_telemetry\") |> range(start: -1m) |> filter(fn: (r) => r._measurement == \"aeb\" and r._field == \"active\") |> last()",
+        "query": 'from(bucket: "adas_telemetry") |> range(start: -1m) |> filter(fn: (r) => r._measurement == "aeb" and r._field == "active") |> last()',
         "refId": "A"
       }]
     },
@@ -91,7 +91,7 @@
         "overrides": []
       },
       "targets": [{
-        "query": "from(bucket: \"adas_telemetry\") |> range(start: -1m) |> filter(fn: (r) => r._measurement == \"aeb\" and r._field == \"ttc\") |> last()",
+        "query": 'from(bucket: "adas_telemetry") |> range(start: -1m) |> filter(fn: (r) => r._measurement == "aeb" and r._field == "ttc") |> last()',
         "refId": "A"
       }]
     },
@@ -102,11 +102,11 @@
       "fieldConfig": { "defaults": { "unit": "m/s" }, "overrides": [] },
       "targets": [
         {
-          "query": "from(bucket: \"adas_telemetry\") |> range(start: -5m) |> filter(fn: (r) => r._measurement == \"vehicle\" and r._field == \"speed_ms\")",
+          "query": 'from(bucket: "adas_telemetry") |> range(start: -5m) |> filter(fn: (r) => r._measurement == "vehicle" and r._field == "speed_ms")',
           "refId": "A", "legendFormat": "ego_speed"
         },
         {
-          "query": "from(bucket: \"adas_telemetry\") |> range(start: -5m) |> filter(fn: (r) => r._measurement == \"acc\" and r._field == \"target_speed_ms\")",
+          "query": 'from(bucket: "adas_telemetry") |> range(start: -5m) |> filter(fn: (r) => r._measurement == "acc" and r._field == "target_speed_ms")',
           "refId": "B", "legendFormat": "acc_target"
         }
       ]
@@ -118,11 +118,11 @@
       "fieldConfig": { "defaults": {}, "overrides": [] },
       "targets": [
         {
-          "query": "from(bucket: \"adas_telemetry\") |> range(start: -5m) |> filter(fn: (r) => r._measurement == \"lane\" and r._field == \"cte_m\")",
+          "query": 'from(bucket: "adas_telemetry") |> range(start: -5m) |> filter(fn: (r) => r._measurement == "lane" and r._field == "cte_m")',
           "refId": "A", "legendFormat": "CTE (m)"
         },
         {
-          "query": "from(bucket: \"adas_telemetry\") |> range(start: -5m) |> filter(fn: (r) => r._measurement == \"lane\" and r._field == \"heading_err_rad\")",
+          "query": 'from(bucket: "adas_telemetry") |> range(start: -5m) |> filter(fn: (r) => r._measurement == "lane" and r._field == "heading_err_rad")',
           "refId": "B", "legendFormat": "Heading err (rad)"
         }
       ]
@@ -133,7 +133,7 @@
       "gridPos": { "h": 3, "w": 3, "x": 0, "y": 14 },
       "fieldConfig": { "defaults": {}, "overrides": [] },
       "targets": [{
-        "query": "from(bucket: \"adas_telemetry\") |> range(start: -1m) |> filter(fn: (r) => r._measurement == \"ldw\" and r._field == \"state_str\") |> last()",
+        "query": 'from(bucket: "adas_telemetry") |> range(start: -1m) |> filter(fn: (r) => r._measurement == "ldw" and r._field == "state_str") |> last()',
         "refId": "A"
       }]
     },
@@ -143,7 +143,7 @@
       "gridPos": { "h": 3, "w": 3, "x": 3, "y": 14 },
       "fieldConfig": { "defaults": {}, "overrides": [] },
       "targets": [{
-        "query": "from(bucket: \"adas_telemetry\") |> range(start: -1m) |> filter(fn: (r) => r._measurement == \"bsw\" and r._field == \"left_alert_str\") |> last()",
+        "query": 'from(bucket: "adas_telemetry") |> range(start: -1m) |> filter(fn: (r) => r._measurement == "bsw" and r._field == "left_alert_str") |> last()',
         "refId": "A"
       }]
     },
@@ -153,7 +153,7 @@
       "gridPos": { "h": 3, "w": 3, "x": 6, "y": 14 },
       "fieldConfig": { "defaults": {}, "overrides": [] },
       "targets": [{
-        "query": "from(bucket: \"adas_telemetry\") |> range(start: -1m) |> filter(fn: (r) => r._measurement == \"bsw\" and r._field == \"right_alert_str\") |> last()",
+        "query": 'from(bucket: "adas_telemetry") |> range(start: -1m) |> filter(fn: (r) => r._measurement == "bsw" and r._field == "right_alert_str") |> last()',
         "refId": "A"
       }]
     },
@@ -163,7 +163,7 @@
       "gridPos": { "h": 3, "w": 3, "x": 9, "y": 14 },
       "fieldConfig": { "defaults": {}, "overrides": [] },
       "targets": [{
-        "query": "from(bucket: \"adas_telemetry\") |> range(start: -1m) |> filter(fn: (r) => r._measurement == \"tsr\" and r._field == \"traffic_light_str\") |> last()",
+        "query": 'from(bucket: "adas_telemetry") |> range(start: -1m) |> filter(fn: (r) => r._measurement == "tsr" and r._field == "traffic_light_str") |> last()',
         "refId": "A"
       }]
     },
@@ -173,7 +173,7 @@
       "gridPos": { "h": 3, "w": 3, "x": 12, "y": 14 },
       "fieldConfig": { "defaults": {}, "overrides": [] },
       "targets": [{
-        "query": "from(bucket: \"adas_telemetry\") |> range(start: -1m) |> filter(fn: (r) => r._measurement == \"tja\" and r._field == \"state_str\") |> last()",
+        "query": 'from(bucket: "adas_telemetry") |> range(start: -1m) |> filter(fn: (r) => r._measurement == "tja" and r._field == "state_str") |> last()',
         "refId": "A"
       }]
     },
@@ -183,7 +183,7 @@
       "gridPos": { "h": 3, "w": 3, "x": 15, "y": 14 },
       "fieldConfig": { "defaults": { "unit": "km/h" }, "overrides": [] },
       "targets": [{
-        "query": "from(bucket: \"adas_telemetry\") |> range(start: -1m) |> filter(fn: (r) => r._measurement == \"tsr\" and r._field == \"speed_limit_kmh\") |> last()",
+        "query": 'from(bucket: "adas_telemetry") |> range(start: -1m) |> filter(fn: (r) => r._measurement == "tsr" and r._field == "speed_limit_kmh") |> last()',
         "refId": "A"
       }]
     },
@@ -193,7 +193,7 @@
       "gridPos": { "h": 8, "w": 12, "x": 0, "y": 17 },
       "fieldConfig": { "defaults": { "unit": "m" }, "overrides": [] },
       "targets": [{
-        "query": "from(bucket: \"adas_telemetry\") |> range(start: -5m) |> filter(fn: (r) => r._measurement == \"acc\" and r._field == \"distance_m\")",
+        "query": 'from(bucket: "adas_telemetry") |> range(start: -5m) |> filter(fn: (r) => r._measurement == "acc" and r._field == "distance_m")',
         "refId": "A", "legendFormat": "distance"
       }]
     },
@@ -203,7 +203,7 @@
       "gridPos": { "h": 8, "w": 12, "x": 12, "y": 17 },
       "fieldConfig": { "defaults": { "unit": "rad" }, "overrides": [] },
       "targets": [{
-        "query": "from(bucket: \"adas_telemetry\") |> range(start: -5m) |> filter(fn: (r) => r._measurement == \"lka_pro\" and r._field == \"assist\")",
+        "query": 'from(bucket: "adas_telemetry") |> range(start: -5m) |> filter(fn: (r) => r._measurement == "lka_pro" and r._field == "assist")',
         "refId": "A", "legendFormat": "steer_assist"
       }]
     },
@@ -213,7 +213,7 @@
       "gridPos": { "h": 8, "w": 12, "x": 0, "y": 25 },
       "fieldConfig": { "defaults": { "unit": "ms" }, "overrides": [] },
       "targets": [{
-        "query": "from(bucket: \"adas_telemetry\") |> range(start: -5m) |> filter(fn: (r) => r._measurement == \"mpc\" and r._field == \"solve_time_ms\")",
+        "query": 'from(bucket: "adas_telemetry") |> range(start: -5m) |> filter(fn: (r) => r._measurement == "mpc" and r._field == "solve_time_ms")',
         "refId": "A", "legendFormat": "solve_time"
       }]
     },
@@ -223,7 +223,7 @@
       "gridPos": { "h": 8, "w": 12, "x": 12, "y": 25 },
       "fieldConfig": { "defaults": { "unit": "fps" }, "overrides": [] },
       "targets": [{
-        "query": "from(bucket: \"adas_telemetry\") |> range(start: -5m) |> filter(fn: (r) => r._measurement == \"performance\" and r._field == \"fps\")",
+        "query": 'from(bucket: "adas_telemetry") |> range(start: -5m) |> filter(fn: (r) => r._measurement == "performance" and r._field == "fps")',
         "refId": "A", "legendFormat": "fps"
       }]
     }

@@ -1,0 +1,18 @@
+import json
+import re
+
+p = 'telemetry/grafana/provisioning/dashboards/adas_dashboard.json'
+s = open(p, encoding='utf-8').read()
+
+# Replace single-quoted strings with double-quoted, escaping inner doubles
+def fix(m):
+    inner = m.group(1)
+    inner_escaped = inner.replace('"', '\\"')
+    return '"' + inner_escaped + '"'
+
+s2 = re.sub(r"'([^']*)'", fix, s)
+open(p, 'w', encoding='utf-8').write(s2)
+
+# verify
+json.loads(s2)
+print('Fixed and validated OK')
