@@ -9,25 +9,25 @@ Handles:
 - Cleanup
 """
 
+from __future__ import annotations
+
 import logging
 from typing import Optional, Callable
 import queue
 import numpy as np
 
-# Setup CARLA paths
+# Setup CARLA paths — CARLA Python API is pip-installed (carla>=0.10.0)
 import sys
 from pathlib import Path
 _root = Path(__file__).resolve().parent.parent
 if str(_root) not in sys.path:
     sys.path.insert(0, str(_root))
 
+# CARLA Python API is optional at import time; guard at entry points.
 try:
     import carla
 except ImportError:
-    for _p in (_root.parent / "PythonAPI", _root / ".carla_py"):
-        if _p.exists() and str(_p) not in sys.path:
-            sys.path.insert(0, str(_p))
-    import carla
+    carla = None  # type: ignore[assignment]
 
 from utils.type_hints import CarlaVehicleControl, CameraFrame
 from config import *  # noqa: F401,F403
@@ -47,6 +47,12 @@ class CarlaManager:
                  host: str = "localhost",
                  port: int = 2000,
                  timeout: float = 10.0):
+        if carla is None:
+            raise ImportError(
+                "CARLA Python API not installed. "
+                "Install with: pip install carla-0.10.0-cp311-cp311-win_amd64.whl "
+                "from https://github.com/carla-simulator/carla/releases"
+            )
         self.host = host
         self.port = port
         self.timeout = timeout

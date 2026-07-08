@@ -27,6 +27,11 @@ dependencies = [
     "casadi>=3.6",
 ]
 
+# CARLA Python API is NOT on PyPI — install manually from CARLA release wheel.
+# See: https://github.com/carla-simulator/carla/releases (UE5 build)
+# Install with: pip install carla-0.10.0-cp311-cp311-win_amd64.whl
+# Or: pip install -e ".[carla]"  (if you host the wheel on a private index)
+
 [project.optional-dependencies]
 dev = [
     "pytest>=7.0",
@@ -36,6 +41,12 @@ dev = [
 gpu = [
     "kornia>=0.6.0",
     "opencv-python>=4.8",
+]
+# CARLA Python API is NOT on PyPI — install the wheel manually from CARLA releases.
+# This extra exists for users who host the wheel on a private index:
+#   pip install -e ".[carla]"
+carla = [
+    "carla>=0.10.0",
 ]
 
 [project.urls]

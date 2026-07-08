@@ -1,5 +1,10 @@
 # Config โหลดจาก config.yaml
 pyyaml>=6.0
 
+# CARLA Python API (UE5) — NOT on PyPI, install manually from CARLA release wheel
+# Download from: https://github.com/carla-simulator/carla/releases (UE5 build)
+# Install with: pip install carla-0.10.0-cp311-cp311-win_amd64.whl
+# carla>=0.10.0  # uncomment only if installed from a private index
+
 # GPU acceleration for computer vision
 kornia>=0.6.0

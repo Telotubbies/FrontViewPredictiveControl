@@ -103,11 +103,10 @@ class TestBasicFunctionality(unittest.TestCase):
         """Test CarlaManager import and basic setup."""
         try:
             from managers.carla_manager import CarlaManager
+            # Test instantiation (raises ImportError if carla not installed)
+            manager = CarlaManager()
         except ImportError as e:
             self.skipTest(f"CarlaManager requires carla: {e}")
-
-        # Test instantiation
-        manager = CarlaManager()
 
         # Test that camera_callback attribute exists (None until registered)
         self.assertTrue(hasattr(manager, 'camera_callback'))
