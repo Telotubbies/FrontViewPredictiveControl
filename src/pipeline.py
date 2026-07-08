@@ -91,7 +91,7 @@ class LKAPipeline:
                 bev_bot_margin=0.10,
             )
             if USE_CLASSICAL_DETECTOR:
-                logger.info("LKAPipeline: using LaneTrajectoryPipeline with Classical Detector (color thresholding, no GPU)")
+                logger.info("LKAPipeline: using LaneTrajectoryPipeline with CARLA Waypoint Detection (ground truth, no AI model)")
             else:
                 logger.info("LKAPipeline: using LaneTrajectoryPipeline with UNet (BEV+Kalman)")
         else:
@@ -117,7 +117,8 @@ class LKAPipeline:
         })
 
     def reset(self) -> None:
-        self._legacy_perception.reset()
+        if self._legacy_perception is not None:
+            self._legacy_perception.reset()
         if self._trajectory_pipeline is not None:
             self._trajectory_pipeline.reset()
         self._smoother.reset()
@@ -139,10 +140,12 @@ class LKAPipeline:
         wp_state: Optional[Tuple[float, float, float]],
         prev_steer: float,
         prev_throttle: float,
+        world=None,
+        vehicle=None,
     ) -> Tuple[float, float, float, FrameState]:
         """Returns: (steer, throttle, brake, frame_state)."""
         if self._trajectory_pipeline is not None:
-            out = self._trajectory_pipeline.process(rgb)
+            out = self._trajectory_pipeline.process(rgb, world=world, vehicle=vehicle)
             cte_m_lane = float(out.cte)
             head_s = float(out.heading_err)
             curv_s = float(out.curvature)
@@ -198,7 +201,7 @@ class LKAPipeline:
             vt = self._target_speed_ms
 
         mpc_t0 = time.time()
-        steer_rad, accel, solver_status = self._mpc.solve(
+        steer_rad, accel, solver_status, mpc_trajectory = self._mpc.solve(
             x0=0, y0=cte_m, psi0=head_s, v0=speed_ms,
             v_ref=vt, cte=cte_m, heading_err=head_s, curvature=curv_s,
             confidence=float(np.clip(lane_conf, 0.0, 1.0)),
@@ -247,6 +250,7 @@ class LKAPipeline:
             left_curvature_m=left_curvature_m,
             right_curvature_m=right_curvature_m,
             solver_status=solver_status,
+            mpc_trajectory=mpc_trajectory,
         )
         frame_state.mpc_solve_time_ms = mpc_solve_time_ms
         return steer, throttle, brake, frame_state

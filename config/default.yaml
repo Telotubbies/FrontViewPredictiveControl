@@ -1,6 +1,10 @@
 # LKA Pipeline — ค่าคงที่ทั้งหมด (รวม config เดียว)
 # แก้ค่าที่นี่แล้วรันใหม่; config.py โหลดจากไฟล์นี้
 
+# ── CARLA ───────────────────────────────────────────────────────────────────
+carla:
+  CARLA_MAP: Town10HD_Opt   # UE5 default (Town01-07 ถูกลบใน UE5 0.10.0)
+
 # ── Camera ─────────────────────────────────────────────────────────────────
 camera:
   CAM_FOV_DEG: 90.0   # 90° for balanced near/far lane coverage
@@ -16,7 +20,7 @@ camera:
 
 # ── Lane Detection Method ──────────────────────────────────────────────────
 perception:
-  USE_CLASSICAL_DETECTOR: false  # true = Classical (color, no GPU), false = UNet (deep learning, GPU)
+  USE_CLASSICAL_DETECTOR: true  # true = CARLA waypoint lane detection (ground truth, no AI model), false = UNet (deep learning, GPU)
 
 # ── Waypoints ───────────────────────────────────────────────────────────────
 waypoints:

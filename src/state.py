@@ -82,3 +82,19 @@ class FrameState:
     acc_target_speed_ms: float = -1.0
     acc_distance_m: float = -1.0
     mpc_solve_time_ms: float = 0.0
+    # ── MPC predicted trajectory (for dashboard visualization) ──────────────
+    mpc_trajectory: Optional[np.ndarray] = None  # (4, N+1) array of [x, y, psi, v]
+    # ── Override indicators (what actually modified controls) ───────────────
+    safety_override_active: bool = False
+    adas_override_active: bool = False
+    stuck_recovery_active: bool = False
+    stuck_recovery_phase: str = "none"  # none | brake | reverse | forward
+    # ── Final control values actually sent to CARLA (after all overrides) ──
+    final_steer: float = 0.0
+    final_throttle: float = 0.0
+    final_brake: float = 0.0
+    # ── Vehicle world pose (for BEV map and telemetry) ──────────────────────
+    vehicle_x: float = 0.0
+    vehicle_y: float = 0.0
+    vehicle_z: float = 0.0
+    vehicle_yaw: float = 0.0

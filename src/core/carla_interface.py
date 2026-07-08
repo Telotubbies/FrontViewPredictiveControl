@@ -10,12 +10,26 @@ CARLA Interface Module - จัดการการเชื่อมต่อ�
 - Cleanup
 """
 
+from __future__ import annotations
+
 import logging
 from pathlib import Path
-from typing import Optional, List
+from typing import Optional, List, TYPE_CHECKING
 import sys
 
-import carla
+from config import CAM_FOV_DEG
+
+if TYPE_CHECKING:
+    import carla
+
+# CARLA Python API is imported lazily via setup_carla_paths() to allow a
+# helpful ImportError message when carla is not installed.
+# If carla is not available, this stays None and setup_carla_paths() raises.
+try:
+    import carla
+except ImportError:
+    carla = None  # type: ignore[assignment]
+
 import numpy as np
 
 logger = logging.getLogger(__name__)
@@ -25,6 +39,12 @@ class CarlaInterface:
     """CARLA simulator interface สำหรับ lane keeping system"""
 
     def __init__(self, host: str = "localhost", port: int = 2000, timeout: float = 10.0):
+        if carla is None:
+            raise ImportError(
+                "CARLA Python API not installed. "
+                "Install with: pip install carla-0.10.0-cp311-cp311-win_amd64.whl "
+                "from https://github.com/carla-simulator/carla/releases"
+            )
         self.host = host
         self.port = port
         self.timeout = timeout
@@ -48,7 +68,7 @@ class CarlaInterface:
             return False
 
     def spawn_vehicle(self,
-                     vehicle_model: str = "vehicle.tesla.model3",
+                     vehicle_model: str = "vehicle.lincoln.mkz",
                      spawn_point: Optional[carla.Transform] = None) -> bool:
         """Spawn vehicle ใน CARLA world"""
         if not self.world or not self.blueprint_library:
@@ -60,15 +80,25 @@ class CarlaInterface:
             blueprint = self.blueprint_library.filter(vehicle_model)[0]
             blueprint.set_attribute('role_name', 'ego_vehicle')
 
-            # Get spawn point
+            # Get spawn point — try multiple points to find one without collision
             if spawn_point is None:
                 spawn_points = self.world.get_map().get_spawn_points()
                 if not spawn_points:
                     logger.error("No spawn points available")
                     return False
-                spawn_point = spawn_points[0]
+                # Try each spawn point until one succeeds (no collision)
+                for i, sp in enumerate(spawn_points):
+                    try:
+                        self.vehicle = self.world.spawn_actor(blueprint, sp)
+                        if self.vehicle:
+                            logger.info(f"Spawned {vehicle_model} at spawn point #{i}")
+                            return True
+                    except Exception:
+                        continue
+                logger.error("All spawn points occupied or blocked")
+                return False
 
-            # Spawn vehicle
+            # Spawn vehicle at specified spawn point
             self.vehicle = self.world.spawn_actor(blueprint, spawn_point)
             if self.vehicle:
                 logger.info(f"Spawned {vehicle_model} at spawn point")
@@ -84,7 +114,7 @@ class CarlaInterface:
     def setup_camera(self,
                     cam_w: int = 640,
                     cam_h: int = 480,
-                    cam_fov: float = 110.0,
+                    cam_fov: float = CAM_FOV_DEG,
                     sensor_type: str = 'sensor.camera.rgb') -> bool:
         """Setup camera บน vehicle"""
         if not self.vehicle or not self.blueprint_library:
@@ -212,14 +242,18 @@ class CarlaInterface:
 
 
 def setup_carla_paths():
-    """Setup CARLA Python API paths"""
+    """Setup project root on sys.path; CARLA Python API is pip-installed (carla>=0.10.0)."""
+    global carla
     root = Path(__file__).resolve().parent.parent
     if str(root) not in sys.path:
         sys.path.insert(0, str(root))
 
     try:
-        import carla  # noqa: F401
+        import carla as _carla
+        carla = _carla
     except ImportError:
-        for path in (root.parent / "PythonAPI", root / ".carla_py"):
-            if path.exists() and str(path) not in sys.path:
-                sys.path.insert(0, str(path))
+        raise ImportError(
+            "CARLA Python API not installed. "
+            "Install with: pip install carla-0.10.0-cp311-cp311-win_amd64.whl "
+            "from https://github.com/carla-simulator/carla/releases"
+        )

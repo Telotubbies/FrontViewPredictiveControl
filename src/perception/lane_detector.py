@@ -18,6 +18,7 @@ sys.path.insert(0, str(Path(__file__).parent.parent))
 from config import (
     UNET_INPUT_W_INFER,
     UNET_INPUT_H_INFER,
+    CAM_FOV_DEG,
 )
 from utils.device_utils import get_device
 from perception.birds_eye_view_lane_pipeline import BEVLanePipeline
@@ -447,7 +448,7 @@ class LaneDetector:
 
         # CARLA waypoint detection is primary when world/vehicle available (ground truth)
         if world is not None and vehicle is not None:
-            mask = self.detect_lanes_carla(image, world, vehicle)
+            mask = self.detect_lanes_carla(image, world, vehicle, fov=CAM_FOV_DEG)
             return mask, self._extract_lane_features(mask), []
 
         # UNet fallback when no CARLA access

@@ -1,10 +1,16 @@
 """
 CARLA I/O — หลักเหตุผล: ดึง waypoints และ geometry จาก CARLA แยกจาก pipeline
 """
+from __future__ import annotations
+
 import math
 from typing import List, Optional, Tuple
 
-import carla
+# CARLA Python API is optional at import time; guard at entry points.
+try:
+    import carla
+except ImportError:
+    carla = None  # type: ignore[assignment]
 import numpy as np
 
 from config import NUM_WP, WP_STEP
@@ -12,6 +18,12 @@ from config import NUM_WP, WP_STEP
 
 def get_waypoints(vehicle: carla.Actor, cmap: carla.Map) -> List[carla.Waypoint]:
     """Waypoints ข้างหน้าตามถนน (สำหรับ fusion กับ lane detection)."""
+    if carla is None:
+        raise ImportError(
+            "CARLA Python API not installed. "
+            "Install with: pip install carla-0.10.0-cp311-cp311-win_amd64.whl "
+            "from https://github.com/carla-simulator/carla/releases"
+        )
     vt = vehicle.get_transform()
     wp = cmap.get_waypoint(vt.location, project_to_road=True,
                            lane_type=carla.LaneType.Driving)

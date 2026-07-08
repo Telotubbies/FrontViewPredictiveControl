@@ -218,6 +218,8 @@ class CARLAMPCSystem:
                     wp_state=wp_state,
                     prev_steer=self._prev_steer,
                     prev_throttle=self._prev_throttle,
+                    world=self.carla.world,
+                    vehicle=self.carla.vehicle,
                 )
 
                 # ── Full ADAS Suite ────────────────────────────────────────
@@ -251,6 +253,31 @@ class CARLAMPCSystem:
                     steer, throttle, brake, _ = self.adas.apply_to_control(
                         steer, throttle, brake, adas_out
                     )
+
+                    # Populate FrameState with ADAS status for dashboard
+                    if frame_state:
+                        frame_state.aeb_active = getattr(adas_out, 'aeb_active', False)
+                        frame_state.aeb_ttc = getattr(adas_out, 'aeb_ttc', -1.0)
+                        frame_state.aeb_warning_level = getattr(adas_out, 'aeb_warning_level', 'none')
+                        frame_state.acc_active = getattr(adas_out, 'acc_active', False)
+                        frame_state.acc_target_speed_ms = getattr(adas_out, 'acc_target_speed_ms', -1.0)
+                        frame_state.acc_distance_m = getattr(adas_out, 'acc_distance_m', -1.0)
+                        frame_state.ldw_state = getattr(adas_out, 'ldw_state', 'in_lane')
+                        frame_state.ldw_warning_active = getattr(adas_out, 'ldw_warning_active', False)
+                        frame_state.ldw_side = getattr(adas_out, 'ldw_side', 'none')
+                        frame_state.lka_pro_assist = getattr(adas_out, 'lka_pro_assist', 0.0)
+                        frame_state.bsw_left_alert = getattr(adas_out, 'bsw_left_alert', 'clear')
+                        frame_state.bsw_right_alert = getattr(adas_out, 'bsw_right_alert', 'clear')
+                        frame_state.bsw_safe_left = getattr(adas_out, 'bsw_safe_left', True)
+                        frame_state.bsw_safe_right = getattr(adas_out, 'bsw_safe_right', True)
+                        frame_state.tsr_speed_limit_kmh = getattr(adas_out, 'tsr_speed_limit_kmh', None)
+                        frame_state.tsr_traffic_light = getattr(adas_out, 'tsr_traffic_light', 'unknown')
+                        frame_state.tsr_traffic_light_distance = getattr(adas_out, 'tsr_traffic_light_distance', -1.0)
+                        frame_state.tsr_action = getattr(adas_out, 'tsr_action', 'none')
+                        frame_state.tja_state = getattr(adas_out, 'tja_state', 'inactive')
+                        frame_state.tja_active = getattr(adas_out, 'tja_active', False)
+                        frame_state.stop_and_go_stopped = getattr(adas_out, 'stop_and_go_stopped', False)
+                        frame_state.adas_override_active = bool(adas_out.active_features)
 
                     if adas_out.active_features:
                         logger.debug(
@@ -318,6 +345,8 @@ class CARLAMPCSystem:
                 self._prev_throttle = throttle
 
                 # Check for stuck recovery
+                stuck_active = False
+                stuck_phase = "none"
                 recovery = self.stuck_recovery.update(current_speed_ms, throttle)
                 if recovery is not None:
                     r_steer, r_throttle, r_brake, r_reverse = recovery
@@ -327,11 +356,29 @@ class CARLAMPCSystem:
                     carla_control.brake = r_brake
                     carla_control.reverse = r_reverse
                     self.carla.apply_control(carla_control)
-                    logger.info("Applying stuck recovery (phase=%s)", self.stuck_recovery._phase)
+                    stuck_active = True
+                    stuck_phase = getattr(self.stuck_recovery, '_phase', 'unknown')
+                    logger.info("Applying stuck recovery (phase=%s)", stuck_phase)
+                    # Override final values for dashboard
+                    steer = r_steer
+                    throttle = r_throttle
+                    brake = r_brake
                     if self.metrics_collector and self.metrics_collector.frames:
                         self.metrics_collector.frames[-1].stuck_recovery_active = True
 
-                # Update dashboard
+                # Update FrameState with final control values + vehicle pose
+                if frame_state:
+                    frame_state.final_steer = steer
+                    frame_state.final_throttle = throttle
+                    frame_state.final_brake = brake
+                    frame_state.stuck_recovery_active = stuck_active
+                    frame_state.stuck_recovery_phase = stuck_phase
+                    frame_state.vehicle_x = ego_loc.x if 'ego_loc' in dir() else 0.0
+                    frame_state.vehicle_y = ego_loc.y if 'ego_loc' in dir() else 0.0
+                    frame_state.vehicle_z = ego_loc.z if 'ego_loc' in dir() else 0.0
+                    frame_state.vehicle_yaw = ego_heading if 'ego_heading' in dir() else 0.0
+
+                # Update dashboard (AFTER all overrides — shows actual values sent to CARLA)
                 if self.dashboard:
                     self._update_dashboard(
                         current_frame, frame_state, current_speed_ms,
@@ -384,35 +431,46 @@ class CARLAMPCSystem:
                          steer: float,
                          throttle: float,
                          brake: float):
-        """Update dashboard display"""
+        """Update dashboard display — Tesla-style layout"""
         try:
             # Clear panel
-            self.dashboard.panel_surface.fill((0, 0, 0))
+            self.dashboard.panel_surface.fill((26, 26, 46))
 
-            # Render camera frame with lane overlay
+            # Render camera frame with lane overlay + MPC trajectory
             if frame_state and frame_state.lane_overlay is not None:
-                self.dashboard.render_lane_overlay(rgb_frame, frame_state.lane_overlay)
+                self.dashboard.render_lane_overlay(rgb_frame, frame_state.lane_overlay, frame_state)
             else:
-                self.dashboard.render_lane_overlay(rgb_frame)
+                self.dashboard.render_lane_overlay(rgb_frame, None, frame_state)
 
-            # Render BEV view if available
-            if frame_state and frame_state.bev_binary is not None:
-                self.dashboard.render_bev_view(frame_state.bev_binary)
+            # Render BEV view if available (with MPC path overlay)
+            if frame_state:
+                self.dashboard.render_bev_view(frame_state.bev_binary, frame_state)
 
-            # Render status info
+            # Render top bar (speed, autopilot, target)
+            self.dashboard._render_top_bar(frame_state, self.target_speed_kmh)
+
+            # Render metrics panel
             speed_kmh = current_speed_ms * 3.6
             confidence = frame_state.lane_conf if frame_state else 0.0
             cte = frame_state.cte_m if frame_state else 0.0
             fps = 1.0 / self._loop_times[-1] if self._loop_times else 0.0
 
             self.dashboard.render_status_info(
-                speed_kmh, steer, cte, confidence, fps
+                speed_kmh, steer, cte, confidence, fps, frame_state
             )
 
-            # Render control info
+            # Render ADAS panel
+            if frame_state:
+                self.dashboard.render_adas_panel(frame_state)
+
+            # Render control info (legacy, now part of metrics)
             self.dashboard.render_control_info(
-                throttle, brake, self.target_speed_kmh
+                throttle, brake, self.target_speed_kmh, frame_state
             )
+
+            # Render status bar
+            sim_time = time.time() - loop_start_time if 'loop_start_time' in dir() else 0.0
+            self.dashboard._render_status_bar(fps, self.frame_count, sim_time)
 
             # Update display
             self.dashboard.update()

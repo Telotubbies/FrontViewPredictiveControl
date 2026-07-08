@@ -1505,14 +1505,14 @@ class LaneTrajectoryPipeline:
         bev_bot_margin: float = 0.10,
         lightweight_vis: bool = False,
     ):
-        # Initialize detector (UNet or Classical)
+        # Initialize detector (UNet or CARLA waypoint-based)
         if detector is not None:
             self.detector = detector
         elif use_classical_detector:
-            # Use classical color-based detector (no GPU required)
-            from .classical.detector import ClassicalLane
-            self.detector = ClassicalLane()
-            logger.info("Using Classical Lane Detector (color thresholding, no GPU)")
+            # Use CARLA waypoint-based lane detection (ground truth from simulator, no AI model)
+            from .lane_detector import LaneDetector
+            self.detector = LaneDetector(model_path=None, use_carla=True)
+            logger.info("Using CARLA Waypoint Lane Detector (ground truth, no AI model)")
         else:
             # Default: use UNet detector
             self.detector = detector  # Will be set by caller

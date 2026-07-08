@@ -308,10 +308,11 @@ class LaneMPC:
             weight_scales: optional (scale_cte, scale_heading, scale_steer_rate, scale_jerk) from get_mpc_weights()
 
         Returns:
-            (steer, accel, solver_status): first control action and status for test loop
+            (steer, accel, solver_status, trajectory): first control action, status, and predicted trajectory
             steer in [-max_steer, max_steer] radians
             accel in [min_accel, max_accel] m/s^2
             solver_status: "Solve_Succeeded" or "Fallback_PP"
+            trajectory: np.ndarray (4, N+1) of [x, y, psi, v] predicted states, or None on fallback
         """
         c = self.cfg
         N = c.N
@@ -350,10 +351,13 @@ class LaneMPC:
             steer = float(np.clip(u0[0], -c.max_steer, c.max_steer))
             accel = float(np.clip(u0[1], c.min_accel, c.max_accel))
 
+            # Extract predicted state trajectory X[:, k] for visualization
+            X_opt = opt[:n_x].reshape((self._n_states, N + 1))
+
             self._prev_u = np.array([steer, accel])
             self._prev_x0 = opt.copy()
             self._pp.reset()
-            return steer, accel, "Solve_Succeeded"
+            return steer, accel, "Solve_Succeeded", X_opt
 
         except Exception as e:
             logger.warning(
@@ -367,7 +371,7 @@ class LaneMPC:
             accel = float(np.clip(accel, c.min_accel, c.max_accel))
             self._prev_u = np.array([steer, accel])
             self._prev_x0 = None
-            return steer, accel, "Fallback_PP"
+            return steer, accel, "Fallback_PP", None
 
     def steer_to_carla(self, steer_rad: float):
         """Convert MPC steering (radians) to CARLA [-1, 1]."""
