@@ -394,7 +394,7 @@ def _test_mpc():
     mpc = LaneMPC(cfg)
 
     # Straight road, small CTE
-    steer, accel, status = mpc.solve(
+    steer, accel, status, _ = mpc.solve(
         x0=0, y0=0, psi0=0, v0=5.0,
         v_ref=8.0, cte=0.5, heading_err=0.1)
 
@@ -405,7 +405,7 @@ def _test_mpc():
     assert abs(steer) < 0.7, "Steer out of range"
 
     # Curvy road (curvature feed-forward)
-    steer2, accel2, status2 = mpc.solve(
+    steer2, accel2, status2, _ = mpc.solve(
         x0=0, y0=0, psi0=0, v0=8.0,
         v_ref=6.0, cte=-1.0, heading_err=-0.2, curvature=0.05)
 

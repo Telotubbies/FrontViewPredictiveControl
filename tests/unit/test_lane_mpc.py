@@ -126,7 +126,7 @@ class TestLaneMPCSolve:
     def test_small_cte_succeeds(self):
         """Small CTE → solver succeeds or falls back."""
         mpc = self._make_mpc()
-        steer, accel, status = mpc.solve(
+        steer, accel, status, _ = mpc.solve(
             x0=0, y0=0, psi0=0, v0=5.0,
             v_ref=8.0, cte=0.5, heading_err=0.1,
         )
@@ -135,7 +135,7 @@ class TestLaneMPCSolve:
     def test_steer_within_bounds(self):
         """Steering must always be within ±max_steer."""
         mpc = self._make_mpc()
-        steer, _, _ = mpc.solve(
+        steer, _, _, _ = mpc.solve(
             x0=0, y0=0, psi0=0, v0=5.0,
             v_ref=8.0, cte=2.0, heading_err=0.3,
         )
@@ -144,7 +144,7 @@ class TestLaneMPCSolve:
     def test_accel_within_bounds(self):
         """Acceleration must always be within bounds."""
         mpc = self._make_mpc()
-        _, accel, _ = mpc.solve(
+        _, accel, _, _ = mpc.solve(
             x0=0, y0=0, psi0=0, v0=5.0,
             v_ref=20.0, cte=0.5, heading_err=0.1,
         )
@@ -153,7 +153,7 @@ class TestLaneMPCSolve:
     def test_negative_cte(self):
         """Negative CTE should produce valid solution."""
         mpc = self._make_mpc()
-        steer, accel, status = mpc.solve(
+        steer, accel, status, _ = mpc.solve(
             x0=0, y0=0, psi0=0, v0=5.0,
             v_ref=8.0, cte=-1.0, heading_err=-0.1,
         )
@@ -163,7 +163,7 @@ class TestLaneMPCSolve:
     def test_zero_speed(self):
         """Zero speed should not crash."""
         mpc = self._make_mpc()
-        steer, accel, status = mpc.solve(
+        steer, accel, status, _ = mpc.solve(
             x0=0, y0=0, psi0=0, v0=0.0,
             v_ref=5.0, cte=0.5, heading_err=0.1,
         )
@@ -172,7 +172,7 @@ class TestLaneMPCSolve:
     def test_large_cte(self):
         """Very large CTE should still produce bounded output."""
         mpc = self._make_mpc()
-        steer, accel, status = mpc.solve(
+        steer, accel, status, _ = mpc.solve(
             x0=0, y0=0, psi0=0, v0=5.0,
             v_ref=8.0, cte=5.0, heading_err=0.5,
         )
@@ -182,7 +182,7 @@ class TestLaneMPCSolve:
     def test_with_curvature(self):
         """Curved road should produce valid solution."""
         mpc = self._make_mpc()
-        steer, accel, status = mpc.solve(
+        steer, accel, status, _ = mpc.solve(
             x0=0, y0=0, psi0=0, v0=8.0,
             v_ref=6.0, cte=-1.0, heading_err=-0.2, curvature=0.05,
         )
@@ -192,7 +192,7 @@ class TestLaneMPCSolve:
     def test_with_confidence(self):
         """Low confidence should not crash solver."""
         mpc = self._make_mpc()
-        steer, accel, status = mpc.solve(
+        steer, accel, status, _ = mpc.solve(
             x0=0, y0=0, psi0=0, v0=5.0,
             v_ref=8.0, cte=0.5, heading_err=0.1, confidence=0.1,
         )
@@ -201,7 +201,7 @@ class TestLaneMPCSolve:
     def test_with_weight_scales(self):
         """Custom weight scales should be accepted."""
         mpc = self._make_mpc()
-        steer, accel, status = mpc.solve(
+        steer, accel, status, _ = mpc.solve(
             x0=0, y0=0, psi0=0, v0=5.0,
             v_ref=8.0, cte=0.5, heading_err=0.1,
             weight_scales=(2.0, 1.5, 1.0, 1.0),
@@ -211,7 +211,7 @@ class TestLaneMPCSolve:
     def test_returns_floats(self):
         """Return values should be floats."""
         mpc = self._make_mpc()
-        steer, accel, status = mpc.solve(
+        steer, accel, status, _ = mpc.solve(
             x0=0, y0=0, psi0=0, v0=5.0,
             v_ref=8.0, cte=0.5, heading_err=0.1,
         )
@@ -222,7 +222,7 @@ class TestLaneMPCSolve:
     def test_finite_output(self):
         """Output should always be finite (no NaN/Inf)."""
         mpc = self._make_mpc()
-        steer, accel, _ = mpc.solve(
+        steer, accel, _, _ = mpc.solve(
             x0=0, y0=0, psi0=0, v0=5.0,
             v_ref=8.0, cte=0.5, heading_err=0.1,
         )
@@ -304,7 +304,7 @@ class TestSetHorizon:
         mpc = LaneMPC(MPCConfig(N=5))
         mpc.set_horizon(10)
         # Next solve should use new horizon (internal state)
-        steer, accel, status = mpc.solve(
+        steer, accel, status, _ = mpc.solve(
             x0=0, y0=0, psi0=0, v0=5.0,
             v_ref=8.0, cte=0.5, heading_err=0.1,
         )

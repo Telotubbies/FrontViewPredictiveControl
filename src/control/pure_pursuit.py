@@ -200,7 +200,7 @@ class HybridController:
 
         # MPC steering (if needed)
         try:
-            mpc_steer_rad, _, _ = self.mpc.solve(
+            mpc_steer_rad, _, _, _ = self.mpc.solve(
                 x0=0, y0=cte, psi0=heading_err, v0=speed_ms,
                 v_ref=mpc_kwargs.get('v_ref', speed_ms),
                 cte=cte, heading_err=heading_err,

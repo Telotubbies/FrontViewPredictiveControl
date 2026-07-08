@@ -329,7 +329,7 @@ class LKAStep:
         N_desired = compute_mpc_horizon(speed_ms, curv_s)
         self._mpc.set_horizon(N_desired)
         weight_scales = get_mpc_weights(speed_ms, curv_s, lane_conf)
-        steer_rad, accel, solver_status = self._mpc.solve(
+        steer_rad, accel, solver_status, _ = self._mpc.solve(
             x0=0, y0=cte_m, psi0=head_s, v0=speed_ms,
             v_ref=vt, cte=cte_m, heading_err=head_s, curvature=curv_s,
             confidence=lane_conf,
