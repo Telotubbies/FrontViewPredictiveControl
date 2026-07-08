@@ -38,6 +38,9 @@ from bridge.obstacles import get_traffic_obstacles
 from carla_input_output import get_waypoints, waypoints_to_cte_heading
 from telemetry.influxdb_exporter import TelemetryExporter
 from telemetry.metrics_collector import MetricsCollector
+from metrics.run_logger import RunLogger
+from metrics.realtime_stats import RealTimeStats
+from metrics.run_analyzer import RunAnalyzer
 from config import (
     TARGET_SPEED_KMH, USE_TRAJECTORY_PIPELINE,
     CONTROL_HZ, MAIN_LOOP_SLEEP_S
@@ -71,6 +74,8 @@ class CARLAMPCSystem:
         self.adas: Optional[ADASManager] = None
         self.telemetry: Optional[TelemetryExporter] = None
         self.metrics_collector: Optional[MetricsCollector] = None
+        self.run_logger: Optional[RunLogger] = None
+        self.realtime_stats: Optional[RealTimeStats] = None
 
         # Control state (persisted between frames for smoothing)
         self._prev_steer = 0.0
@@ -130,6 +135,26 @@ class CARLAMPCSystem:
             self.adas = ADASManager(aeb_acc=self.aeb_acc)
             self.telemetry = TelemetryExporter(enabled=True)
             self.metrics_collector = MetricsCollector(output_dir=self.metrics_dir)
+
+            # Initialize run logger + realtime stats
+            import time as _time
+            run_timestamp = _time.strftime("%Y-%m-%d_%H-%M-%S")
+            map_name = getattr(self.carla, 'map_name', 'unknown') if self.carla else 'unknown'
+            vehicle_type = getattr(self.carla, 'vehicle_type', 'unknown') if self.carla else 'unknown'
+            run_dir = f"runs/{run_timestamp}_{map_name}"
+            self.run_logger = RunLogger(
+                run_dir=run_dir,
+                map_name=map_name,
+                vehicle_type=vehicle_type,
+                target_speed_kmh=self.target_speed_kmh,
+            )
+            self.run_logger.start()
+
+            self.realtime_stats = RealTimeStats(
+                print_interval=50,
+                target_speed_kmh=self.target_speed_kmh,
+            )
+            logger.info(f"Run logging → {run_dir}/")
 
             logger.info("System initialization completed — Full ADAS suite active")
             return True
@@ -333,6 +358,30 @@ class CARLAMPCSystem:
                         adas_out=adas_out if 'adas_out' in dir() else None,
                     )
 
+                # ── Run logger + realtime stats ───────────────────────
+                if self.run_logger and frame_state:
+                    loop_time_ms = (time.time() - loop_start_time) * 1000.0
+                    fps = 1.0 / self._loop_times[-1] if self._loop_times else 0.0
+                    self.run_logger.log_frame(frame_state, {
+                        "frame_idx": self.frame_count,
+                        "speed_ms": current_speed_ms,
+                        "loop_time_ms": loop_time_ms,
+                        "fps": fps,
+                        "mpc_steer_rad": getattr(frame_state, 'steer', 0.0),
+                        "mpc_accel": 0.0,
+                        "sim_time": time.time() - (self._start_time if hasattr(self, '_start_time') else time.time()),
+                    })
+
+                if self.realtime_stats and frame_state:
+                    loop_time_ms = (time.time() - loop_start_time) * 1000.0
+                    fps = 1.0 / self._loop_times[-1] if self._loop_times else 0.0
+                    self.realtime_stats.update(frame_state, {
+                        "frame_idx": self.frame_count,
+                        "speed_ms": current_speed_ms,
+                        "loop_time_ms": loop_time_ms,
+                        "fps": fps,
+                    })
+
                 # Apply control to vehicle
                 carla_control = self.carla.get_vehicle_control()
                 carla_control.steering = steer
@@ -495,6 +544,34 @@ class CARLAMPCSystem:
             # Close telemetry exporter
             if self.telemetry:
                 self.telemetry.close()
+
+            # Stop run logger and analyze
+            if self.run_logger:
+                self.run_logger.stop()
+                logger.info("Run logger stopped, analyzing...")
+                try:
+                    analyzer = RunAnalyzer(str(self.run_logger.run_dir))
+                    kpis = analyzer.analyze()
+                    if kpis:
+                        lc = kpis.get("lane_compliance", {})
+                        logger.info(
+                            "Run analysis: CTE RMSE=%.2fm, in-lane=%.1f%%, "
+                            "AEB=%d, fallback=%.1f%%, FPS=%.1f",
+                            lc.get("cte_rmse_m", 0),
+                            lc.get("in_lane_pct", 0),
+                            kpis.get("safety", {}).get("aeb_events", 0),
+                            kpis.get("control", {}).get("fallback_rate_pct", 0),
+                            kpis.get("performance", {}).get("fps_mean", 0),
+                        )
+                        logger.info("Report: %s", self.run_logger.run_dir / "report.md")
+                except Exception as e:
+                    logger.error(f"Run analysis failed: {e}")
+
+            # Print final realtime stats
+            if self.realtime_stats:
+                stats = self.realtime_stats.get_current_stats()
+                if stats:
+                    logger.info("Final stats: %s", stats)
 
             # Stop camera
             if self.carla and self.carla.camera:
