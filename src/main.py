@@ -34,6 +34,7 @@ from safety.override import SafetyOverride
 from safety.stuck_recovery import StuckRecovery
 from safety.emergency_braking_adaptive_cruise_control import AEBACC
 from adas.adas_manager import ADASManager
+from control.arbitrator import ControlArbitrator
 from bridge.obstacles import get_traffic_obstacles
 from carla_input_output import get_waypoints, waypoints_to_cte_heading
 from telemetry.influxdb_exporter import TelemetryExporter
@@ -45,6 +46,20 @@ from config import (
     TARGET_SPEED_KMH, USE_TRAJECTORY_PIPELINE,
     CONTROL_HZ, MAIN_LOOP_SLEEP_S
 )
+
+# Pipeline orchestrator + nodes
+from orchestrator import PipelineOrchestrator
+from nodes import (
+    SensorNode,
+    PerceptionNode,
+    ActuatorNode,
+    TelemetryNode,
+    DashboardNode,
+)
+try:
+    from nodes import ArbitrationNode
+except Exception:
+    ArbitrationNode = None
 
 logger = logging.getLogger(__name__)
 
@@ -72,6 +87,7 @@ class CARLAMPCSystem:
         self.stuck_recovery: Optional[StuckRecovery] = None
         self.aeb_acc: Optional[AEBACC] = None
         self.adas: Optional[ADASManager] = None
+        self.arbitrator: Optional[ControlArbitrator] = None
         self.telemetry: Optional[TelemetryExporter] = None
         self.metrics_collector: Optional[MetricsCollector] = None
         self.run_logger: Optional[RunLogger] = None
@@ -133,6 +149,11 @@ class CARLAMPCSystem:
             self.stuck_recovery = StuckRecovery()
             self.aeb_acc = AEBACC()
             self.adas = ADASManager(aeb_acc=self.aeb_acc)
+            self.arbitrator = ControlArbitrator(
+                safety_override=self.safety,
+                adas_manager=self.adas,
+                stuck_recovery=self.stuck_recovery,
+            )
             self.telemetry = TelemetryExporter(enabled=True)
             self.metrics_collector = MetricsCollector(output_dir=self.metrics_dir)
 
@@ -249,6 +270,7 @@ class CARLAMPCSystem:
 
                 # ── Full ADAS Suite ────────────────────────────────────────
                 # AEB + ACC + LDW + LKA Pro + BSW + LCA + TSR + TJA + Stop&Go
+                adas_out = None
                 try:
                     obstacles = get_traffic_obstacles(
                         self.carla.world,
@@ -272,11 +294,6 @@ class CARLAMPCSystem:
                         carla_world=self.carla.world,
                         vehicle_transform=vehicle_transform,
                         nominal_target_speed_ms=self.target_speed_kmh / 3.6,
-                    )
-
-                    # Apply ADAS overrides to MPC output
-                    steer, throttle, brake, _ = self.adas.apply_to_control(
-                        steer, throttle, brake, adas_out
                     )
 
                     # Populate FrameState with ADAS status for dashboard
@@ -310,6 +327,16 @@ class CARLAMPCSystem:
                         )
                 except Exception as e:
                     logger.debug(f"ADAS update skipped: {e}")
+
+                # ── Control arbitration (ADAS → Safety → Stuck → AEB) ──────
+                arb_result = self.arbitrator.arbitrate(
+                    mpc_steer=steer, mpc_throttle=throttle, mpc_brake=brake,
+                    speed_ms=current_speed_ms, frame_state=frame_state,
+                    adas_out=adas_out,
+                )
+                steer = arb_result.steer
+                throttle = arb_result.throttle
+                brake = arb_result.brake
 
                 # ── Telemetry export ───────────────────────────────────
                 if self.telemetry and self.telemetry.is_connected():
@@ -354,8 +381,8 @@ class CARLAMPCSystem:
                         mpc_solver_status=mpc_status,
                         loop_time_ms=loop_time_ms,
                         safety_active=safety_active,
-                        stuck_recovery_active=False,
-                        adas_out=adas_out if 'adas_out' in dir() else None,
+                        stuck_recovery_active=(arb_result.winning_source == "stuck"),
+                        adas_out=adas_out,
                     )
 
                 # ── Run logger + realtime stats ───────────────────────

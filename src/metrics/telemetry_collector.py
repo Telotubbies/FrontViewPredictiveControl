@@ -392,3 +392,70 @@ class ComprehensiveTelemetryCollector:
         self._start_time = None
         self._last_speed = 0.0
         self._last_timestamp = None
+
+
+# ---------------------------------------------------------------------------
+# AsyncTelemetrySink — non-blocking telemetry writer using background thread
+# ---------------------------------------------------------------------------
+import threading
+import queue
+
+
+class AsyncTelemetrySink:
+    """Non-blocking telemetry writer using background thread."""
+
+    def __init__(self, collector: ComprehensiveTelemetryCollector, export_dir: str = "telemetry_output"):
+        self._collector = collector
+        self._export_dir = export_dir
+        self._queue: queue.Queue = queue.Queue(maxsize=10000)
+        self._thread: Optional[threading.Thread] = None
+        self._running = False
+        self._dropped = 0
+
+    def start(self):
+        self._running = True
+        self._thread = threading.Thread(target=self._worker, daemon=True)
+        self._thread.start()
+
+    def record(self, frame: TelemetryFrame):
+        """Non-blocking record. Drops frame if queue full."""
+        try:
+            self._queue.put_nowait(frame)
+        except queue.Full:
+            self._dropped += 1
+            if self._dropped % 100 == 1:
+                logger.warning(f"Telemetry queue full, dropped {self._dropped} frames")
+
+    def stop(self):
+        """Signal stop and wait for worker to finish."""
+        self._running = False
+        try:
+            self._queue.put_nowait(None)  # sentinel
+        except queue.Full:
+            pass
+        if self._thread:
+            self._thread.join(timeout=5.0)
+        # Final export
+        self._collector.export_csv(f"{self._export_dir}/telemetry.csv")
+        self._collector.export_json(f"{self._export_dir}/telemetry_summary.json")
+
+    def _worker(self):
+        while self._running:
+            try:
+                frame = self._queue.get(timeout=0.1)
+                if frame is None:
+                    break
+                self._collector._frames.append(frame)
+                self._collector._frame_count += 1
+            except queue.Empty:
+                pass
+        # Drain remaining
+        while True:
+            try:
+                frame = self._queue.get_nowait()
+                if frame is None:
+                    break
+                self._collector._frames.append(frame)
+                self._collector._frame_count += 1
+            except queue.Empty:
+                break

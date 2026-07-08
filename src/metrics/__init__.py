@@ -15,7 +15,7 @@ Domain metrics:
 """
 from .lane_compliance import LaneComplianceMetrics, LaneComplianceSummary
 from .waypoint_following import WaypointFollowingMetrics, WaypointFollowingSummary
-from .telemetry_collector import ComprehensiveTelemetryCollector, TelemetryFrame
+from .telemetry_collector import ComprehensiveTelemetryCollector, TelemetryFrame, AsyncTelemetrySink
 from .run_logger import RunLogger, LogEvent
 from .realtime_stats import RealTimeStats
 from .run_analyzer import RunAnalyzer
@@ -27,6 +27,7 @@ __all__ = [
     "WaypointFollowingSummary",
     "ComprehensiveTelemetryCollector",
     "TelemetryFrame",
+    "AsyncTelemetrySink",
     "RunLogger",
     "LogEvent",
     "RealTimeStats",

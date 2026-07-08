@@ -368,11 +368,15 @@ class ActuatorNode(PipelineNode):
 # 6. TelemetryNode
 # ---------------------------------------------------------------------------
 class TelemetryNode(PipelineNode):
-    """Records frame data to telemetry exporter + metrics collector (non-blocking)."""
+    """Records frame data to telemetry exporter, metrics collector, run logger,
+    and realtime stats (all non-blocking)."""
 
-    def __init__(self, telemetry=None, metrics_collector=None):
+    def __init__(self, telemetry=None, metrics_collector=None,
+                 run_logger=None, realtime_stats=None):
         self._telemetry = telemetry
         self._metrics_collector = metrics_collector
+        self._run_logger = run_logger
+        self._realtime_stats = realtime_stats
 
     @property
     def name(self) -> str:
@@ -434,6 +438,31 @@ class TelemetryNode(PipelineNode):
                 stuck_recovery_active=False,
                 adas_out=adas_out,
             )
+
+        # ── Run logger ────────────────────────────────────────────────────
+        if self._run_logger and state:
+            loop_time_ms = (time.time() - loop_start_time) * 1000.0
+            fps = 1.0 / loop_times[-1] if loop_times else 0.0
+            self._run_logger.log_frame(state, {
+                "frame_idx": frame_count,
+                "speed_ms": current_speed_ms,
+                "loop_time_ms": loop_time_ms,
+                "fps": fps,
+                "mpc_steer_rad": getattr(state, 'steer', 0.0),
+                "mpc_accel": 0.0,
+                "sim_time": 0.0,
+            })
+
+        # ── Realtime stats ────────────────────────────────────────────────
+        if self._realtime_stats and state:
+            loop_time_ms = (time.time() - loop_start_time) * 1000.0
+            fps = 1.0 / loop_times[-1] if loop_times else 0.0
+            self._realtime_stats.update(state, {
+                "frame_idx": frame_count,
+                "speed_ms": current_speed_ms,
+                "loop_time_ms": loop_time_ms,
+                "fps": fps,
+            })
 
         return state
 
