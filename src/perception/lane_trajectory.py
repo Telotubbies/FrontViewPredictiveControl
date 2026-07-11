@@ -1622,17 +1622,18 @@ class LaneTrajectoryPipeline:
         ny = (rows - cy) / f
         # Ray in camera frame: (nx, ny, 1.0) for each pixel
         # Transform to vehicle frame: d_veh = R_c2v @ d_cam
-        # d_veh[0] = R_c2v[0,0]*nx + R_c2v[0,1]*ny + R_c2v[0,2]*1
         d_veh_x = R_c2v[0, 0] * nx + R_c2v[0, 1] * ny + R_c2v[0, 2]
         d_veh_y = R_c2v[1, 0] * nx + R_c2v[1, 1] * ny + R_c2v[1, 2]
         d_veh_z = R_c2v[2, 0] * nx + R_c2v[2, 1] * ny + R_c2v[2, 2]
 
         # Ground intersection: camera_pos + t * d_veh, z=0
+        # Camera is at (cam_x_offset, 0, h_cam) in vehicle frame
         # h_cam + t * d_veh_z = 0  =>  t = -h_cam / d_veh_z
         valid = d_veh_z < -0.001  # ray must point downward
         t = np.where(valid, -h_cam / d_veh_z, 0.0)
 
-        x_ground = np.where(valid, t * d_veh_x, -1.0)
+        # Ground point = camera_pos + t * d_veh
+        x_ground = np.where(valid, self._cam_x_offset + t * d_veh_x, -1.0)
         y_ground = np.where(valid, t * d_veh_y, 0.0)
 
         return x_ground, y_ground
@@ -1641,14 +1642,16 @@ class LaneTrajectoryPipeline:
         """Project vehicle ground plane (x_forward, y_lateral) back to image pixels (row, col).
 
         Uses rotation matrix for exact inverse of _image_to_ground.
+        Camera is at (cam_x_offset, 0, h_cam) in vehicle frame.
         """
         f = self._cam_f
         cx, cy = self._cam_cx, self._cam_cy
         h_cam = self._cam_height
         R_v2c = self._R_v2c  # vehicle → camera rotation
 
-        # Vector from camera to ground point in vehicle frame: (x, y, -h_cam)
-        vx = x_ground
+        # Vector from camera to ground point in vehicle frame
+        # Camera is at (cam_x_offset, 0, h_cam), ground point at (x, y, 0)
+        vx = x_ground - self._cam_x_offset
         vy = y_ground
         vz = np.full_like(x_ground, -h_cam)
 
@@ -1744,11 +1747,18 @@ class LaneTrajectoryPipeline:
                     tracked, used_completion, p2_case, p3_case)
 
         # Split into left (y < 0) and right (y > 0)
-        left_mask = gy < -0.3   # at least 30cm to the left
-        right_mask = gy > 0.3   # at least 30cm to the right
+        # No absolute Y filter needed — detect_lanes_carla already filters to ego lane.
+        # On curving roads, ego lane edges can have large lateral offset at distance.
+        gx_filt = gx
+        gy_filt = gy
+        img_rows_filt = self._img_rows
+        img_cols_filt = self._img_cols
 
-        left_x, left_y = gx[left_mask], gy[left_mask]
-        right_x, right_y = gx[right_mask], gy[right_mask]
+        left_mask = gy_filt < -0.3   # at least 30cm to the left
+        right_mask = gy_filt > 0.3   # at least 30cm to the right
+
+        left_x, left_y = gx_filt[left_mask], gy_filt[left_mask]
+        right_x, right_y = gx_filt[right_mask], gy_filt[right_mask]
 
         # Fit polynomials: y = a*x^2 + b*x + c
         def fit_lane(x_pts, y_pts, label):
@@ -1767,10 +1777,10 @@ class LaneTrajectoryPipeline:
         c_r = fit_lane(right_x, right_y, "right")
 
         # Build pixel arrays for visualization (image-space coords)
-        if c_l is not None and len(self._img_rows[left_mask]) > 0:
-            left_px = np.column_stack((self._img_rows[left_mask], self._img_cols[left_mask]))
-        if c_r is not None and len(self._img_rows[right_mask]) > 0:
-            right_px = np.column_stack((self._img_rows[right_mask], self._img_cols[right_mask]))
+        if c_l is not None and len(img_rows_filt[left_mask]) > 0:
+            left_px = np.column_stack((img_rows_filt[left_mask], img_cols_filt[left_mask]))
+        if c_r is not None and len(img_rows_filt[right_mask]) > 0:
+            right_px = np.column_stack((img_rows_filt[right_mask], img_cols_filt[right_mask]))
 
         # Determine center coefficients
         if c_l is not None and c_r is not None:
@@ -1927,19 +1937,20 @@ class LaneTrajectoryPipeline:
         right_img_pts = coeffs_to_image_pts(draw_right)
         center_img_pts = coeffs_to_image_pts(draw_center)
 
-        if left_img_pts is not None and len(left_img_pts) > 1:
-            cv2.polylines(lane_overlay, [left_img_pts], False, (0, 255, 255), 3)
-        if right_img_pts is not None and len(right_img_pts) > 1:
-            cv2.polylines(lane_overlay, [right_img_pts], False, (255, 100, 0), 3)
-        if center_img_pts is not None and len(center_img_pts) > 1:
-            cv2.polylines(lane_overlay, [center_img_pts], False, (0, 255, 0), 2)
-
-        # Fill lane area only in non-lightweight mode
+        # Fill lane area FIRST (so lines draw on top, not blended)
         if not self.lightweight_vis and left_img_pts is not None and right_img_pts is not None:
             poly = np.vstack([left_img_pts, right_img_pts[::-1]])
             fill = lane_overlay.copy()
             cv2.fillPoly(fill, [poly], (0, 180, 0))
-            lane_overlay = cv2.addWeighted(lane_overlay, 0.7, fill, 0.3, 0)
+            lane_overlay = cv2.addWeighted(lane_overlay, 0.75, fill, 0.25, 0)
+
+        # Draw lines ON TOP of fill (with anti-aliasing)
+        if left_img_pts is not None and len(left_img_pts) > 1:
+            cv2.polylines(lane_overlay, [left_img_pts], False, (0, 255, 255), 3, cv2.LINE_AA)
+        if right_img_pts is not None and len(right_img_pts) > 1:
+            cv2.polylines(lane_overlay, [right_img_pts], False, (255, 100, 0), 3, cv2.LINE_AA)
+        if center_img_pts is not None and len(center_img_pts) > 1:
+            cv2.polylines(lane_overlay, [center_img_pts], False, (0, 255, 0), 2, cv2.LINE_AA)
 
         # ── Mask vis (lightweight: skip resize, use cam resolution) ──
         mask_vis = (mask * 255).astype(np.uint8) if self.lightweight_vis else cv2.resize(

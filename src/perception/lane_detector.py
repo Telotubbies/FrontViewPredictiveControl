@@ -23,6 +23,14 @@ from config import (
 from utils.device_utils import get_device
 from perception.birds_eye_view_lane_pipeline import BEVLanePipeline
 
+# DSUNet lives in dsunet_training/ at project root
+_PROJECT_ROOT = Path(__file__).resolve().parent.parent.parent
+sys.path.insert(0, str(_PROJECT_ROOT / "dsunet_training"))
+try:
+    from model.dsunet import DSUNet as DSUNetModel
+except ImportError:
+    DSUNetModel = None
+
 logger = logging.getLogger(__name__)
 
 
@@ -131,9 +139,36 @@ class LaneDetector:
         self.model = None
         self.model_type = model_type
         self.ultra_fast_detector = None
+        self.device = get_device()
 
         if model_path and Path(model_path).exists():
-            if model_type == "ultra_fast":
+            if model_type == "dsunet":
+                if DSUNetModel is None:
+                    logger.warning("DSUNet module not found, fallback to CARLA")
+                    self.use_carla = True
+                else:
+                    try:
+                        self.model = DSUNetModel(
+                            in_channels=3, num_classes=1, base_channels=64
+                        ).to(self.device)
+                        checkpoint = torch.load(
+                            model_path, map_location=self.device, weights_only=False
+                        )
+                        state_dict = checkpoint.get(
+                            "model_state_dict", checkpoint
+                        )
+                        self.model.load_state_dict(state_dict)
+                        self.model.eval()
+                        self.use_carla = False
+                        logger.info(f"✅ Loaded DSUNet lane model from {model_path}")
+                    except Exception as e:
+                        logger.warning(
+                            "Failed to load DSUNet model: %s, fallback to CARLA",
+                            e,
+                            exc_info=True,
+                        )
+                        self.use_carla = True
+            elif model_type == "ultra_fast":
                 try:
                     from perception.ultra_fast_lane_detector import UltraFastLaneDetector
                     dataset = "tusimple" if "tusimple" in model_path.lower() else \
@@ -167,6 +202,7 @@ class LaneDetector:
                         exc_info=True,
                     )
                     self.use_carla = True
+                    self.model_type = "unet"
         else:
             if use_carla:
                 logger.info("Using CARLA built-in lane detection")
@@ -201,13 +237,16 @@ class LaneDetector:
         if self.model is None:
             return None, None, 0.0, 0.0, 0.0, 0.0, None
 
-        # Get probability map from UNet
+        # Get probability map from model
         with torch.no_grad():
             img_tensor = torch.FloatTensor(image).permute(2, 0, 1).unsqueeze(0) / 255.0
-            img_tensor = img_tensor.to(self.model.device)
+            img_tensor = img_tensor.to(self.device)
             output = self.model(img_tensor)
-            probs = torch.softmax(output, dim=1)
-            prob_map = probs[0, 1].cpu().numpy()
+            if self.model_type == "dsunet":
+                prob_map = torch.sigmoid(output)[0, 0].cpu().numpy()
+            else:
+                probs = torch.softmax(output, dim=1)
+                prob_map = probs[0, 1].cpu().numpy()
 
         # Apply ego-lane mask to filter adjacent lanes (completely suppress non-ego)
         if ego_mask is not None:
@@ -380,9 +419,24 @@ class LaneDetector:
 
             nearby.sort(key=cam_depth)
 
+            # ── Find ego lane (road_id, lane_id) to filter only ego lane edges ──
+            try:
+                ego_waypoint = carla_map.get_waypoint(vehicle_loc, project_to_road=True)
+                ego_road_id = ego_waypoint.road_id
+                ego_lane_id = ego_waypoint.lane_id
+            except Exception:
+                ego_road_id = None
+                ego_lane_id = None
+
             # ── Group waypoints by road_id + lane_id for per-lane polylines ───
+            # Only draw ego lane edges to avoid confusion with adjacent lanes
             lane_groups: dict = {}
             for wp in nearby:
+                # Only include ego lane
+                if ego_road_id is not None and wp.road_id != ego_road_id:
+                    continue
+                if ego_lane_id is not None and wp.lane_id != ego_lane_id:
+                    continue
                 key = (wp.road_id, wp.lane_id)
                 lane_groups.setdefault(key, []).append(wp)
 
@@ -451,17 +505,20 @@ class LaneDetector:
             mask = self.detect_lanes_carla(image, world, vehicle, fov=CAM_FOV_DEG)
             return mask, self._extract_lane_features(mask), []
 
-        # UNet fallback when no CARLA access
+        # Model fallback when no CARLA access
         if self.model is not None:
             with torch.no_grad():
                 img_tensor = torch.FloatTensor(image).permute(2, 0, 1).unsqueeze(0) / 255.0
-                img_tensor = img_tensor.to(self.model.device)
+                img_tensor = img_tensor.to(self.device)
                 img_tensor = F.interpolate(img_tensor, size=(UNET_INPUT_H_INFER, UNET_INPUT_W_INFER),
                                            mode='bilinear', align_corners=False)
                 output = self.model(img_tensor)
 
-                probs = torch.softmax(output, dim=1)
-                lane_prob = probs[0, 1].cpu().numpy()
+                if self.model_type == "dsunet":
+                    lane_prob = torch.sigmoid(output)[0, 0].cpu().numpy()
+                else:
+                    probs = torch.softmax(output, dim=1)
+                    lane_prob = probs[0, 1].cpu().numpy()
                 lane_prob = cv2.resize(lane_prob, (image.shape[1], image.shape[0]),
                                       interpolation=cv2.INTER_LINEAR)
 

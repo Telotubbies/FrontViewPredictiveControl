@@ -29,6 +29,29 @@ from config import (
     UXColors
 )
 
+# ── Factory HMI imports (with graceful fallback) ────────────────────────────
+try:
+    from gui.hmi import HmiGaugeRenderer
+    _HAS_HMI_GAUGE = True
+except Exception:  # pragma: no cover - HMI gauge renderer may not be available
+    HmiGaugeRenderer = None  # type: ignore
+    _HAS_HMI_GAUGE = False
+
+# ── Tesla 3D view import ────────────────────────────────────────────────────
+try:
+    from gui.tesla_3d_view import Tesla3DView
+    _HAS_TESLA_3D = True
+except Exception:  # pragma: no cover
+    Tesla3DView = None  # type: ignore
+    _HAS_TESLA_3D = False
+
+try:
+    from gui.hmi.event_timeline import EventTimelinePanel
+    _HAS_EVENT_TIMELINE = True
+except Exception:  # pragma: no cover - event timeline may not be available
+    EventTimelinePanel = None  # type: ignore
+    _HAS_EVENT_TIMELINE = False
+
 logger = logging.getLogger(__name__)
 
 # ── Layout constants ──────────────────────────────────────────────────────
@@ -36,19 +59,30 @@ DASH_W = 1280
 DASH_H = 800
 
 TOP_BAR_H = 80
-CENTER_H = 380
-BOTTOM_H = 280
+# Factory HMI: lane health strip (between top bar and center)
+HEALTH_BAR_H = 30
+CENTER_H = 350
+# Factory HMI: event timeline (bottom strip above status bar)
+TIMELINE_H = 40
+BOTTOM_H = 240
 STATUS_BAR_H = 60
 
+# Derived Y positions for clarity
+HEALTH_BAR_Y = TOP_BAR_H                          # y=80,  h=30  → ends at 110
+CENTER_Y = TOP_BAR_H + HEALTH_BAR_H               # y=110, h=350 → ends at 460
+BOTTOM_Y = CENTER_Y + CENTER_H                    # y=460, h=240 → ends at 700
+TIMELINE_Y = BOTTOM_Y + BOTTOM_H                  # y=700, h=40  → ends at 740
+STATUS_BAR_Y = TIMELINE_Y + TIMELINE_H            # y=740, h=60  → ends at 800
+
 CAM_W = 640
-CAM_H = 360
+CAM_H = CENTER_H
 BEV_PANEL_W = 640
-BEV_PANEL_H = 380
+BEV_PANEL_H = CENTER_H
 
 METRICS_W = 640
-METRICS_H = 280
+METRICS_H = BOTTOM_H
 ADAS_W = 640
-ADAS_H = 280
+ADAS_H = BOTTOM_H
 
 # ── Color scheme (Tesla-inspired dark) ────────────────────────────────────
 COLOR_BG = (26, 26, 46)           # #1a1a2e
@@ -92,10 +126,49 @@ class Dashboard:
         self.cam_surface: Optional[pygame.Surface] = None
         self.metrics_surface: Optional[pygame.Surface] = None
         self.adas_surface: Optional[pygame.Surface] = None
+        # Factory HMI surfaces (health bar + event timeline)
+        self.health_surface: Optional[pygame.Surface] = None
+        self.timeline_surface: Optional[pygame.Surface] = None
+        # Factory HMI gauge surface (gauges rendered in bottom area)
+        self.hmi_surface: Optional[pygame.Surface] = None
+
+        # Factory HMI renderer + event timeline panel (graceful fallback)
+        self.hmi_renderer = None
+        self.event_timeline_panel = None
+        self.tesla_3d_view = None  # Tesla 3D perspective view
+        try:
+            if _HAS_HMI_GAUGE and HmiGaugeRenderer is not None:
+                self.hmi_renderer = HmiGaugeRenderer()
+        except Exception as e:
+            logger.warning(f"HMI gauge renderer init failed: {e}")
+        try:
+            if _HAS_TESLA_3D and Tesla3DView is not None:
+                self.tesla_3d_view = Tesla3DView(BEV_PANEL_W, BEV_PANEL_H)
+                logger.info("Tesla 3D perspective view initialized")
+        except Exception as e:
+            logger.warning(f"Tesla 3D view init failed: {e}")
+        try:
+            if _HAS_EVENT_TIMELINE and EventTimelinePanel is not None:
+                # Timeline panel rect: relative to timeline_surface (0,0 origin)
+                # The surface itself is blitted at (0, TIMELINE_Y) on screen
+                self.event_timeline_panel = EventTimelinePanel(
+                    (0, 0, DASH_W, TIMELINE_H))
+        except Exception as e:
+            logger.warning(f"Event timeline panel init failed: {e}")
 
         # Sparkline data
         self._cte_history: deque = deque(maxlen=100)
         self._speed_history: deque = deque(maxlen=100)
+
+        # Lane health history (for factory HMI health bar)
+        self._conf_history: deque = deque(maxlen=200)
+        self._geom_history: deque = deque(maxlen=200)
+
+        # Event timeline data (recent events for factory HMI timeline)
+        self._event_timeline: deque = deque(maxlen=50)
+
+        # Behavior warnings (recent warnings for factory HMI display)
+        self._behavior_warnings: deque = deque(maxlen=8)
 
         self._initialized = False
         self._paused = False
@@ -121,6 +194,10 @@ class Dashboard:
             self.cam_surface = pygame.Surface((CAM_W, CAM_H))
             self.metrics_surface = pygame.Surface((METRICS_W, METRICS_H))
             self.adas_surface = pygame.Surface((ADAS_W, ADAS_H))
+            self.health_surface = pygame.Surface((DASH_W, HEALTH_BAR_H))
+            self.timeline_surface = pygame.Surface((DASH_W, TIMELINE_H))
+            # HMI gauge surface: fits in bottom area alongside metrics/ADAS
+            self.hmi_surface = pygame.Surface((DASH_W, BOTTOM_H))
 
             self._initialized = True
             logger.info("Tesla Dashboard initialized (%dx%d)", self.panel_w, self.panel_h)
@@ -298,11 +375,22 @@ class Dashboard:
     # ── BEV Map ────────────────────────────────────────────────────────────
 
     def render_bev_view(self, bev_image: np.ndarray, frame_state=None) -> None:
-        """Render BEV (Bird's Eye View) map with vehicle, lanes, MPC path"""
+        """Render 3D Tesla-style perspective view (replaces old BEV top-down)."""
         if not self._initialized:
             return
 
         try:
+            # Use Tesla 3D view if available, otherwise fall back to BEV
+            if self.tesla_3d_view is not None and frame_state is not None:
+                self.bev_surface.fill(COLOR_BG)
+                self.tesla_3d_view.render(self.bev_surface, frame_state)
+                # Title
+                self.render_text("3D View", (10, 5),
+                                 color=COLOR_TEXT_DIM, font=self.small_font,
+                                 surface=self.bev_surface)
+                return
+
+            # Fallback: original BEV view
             self.bev_surface.fill(COLOR_PANEL)
 
             if bev_image is not None:
@@ -324,7 +412,7 @@ class Dashboard:
                              surface=self.bev_surface)
 
         except Exception as e:
-            logger.error(f"Failed to render BEV view: {e}")
+            logger.error(f"Failed to render 3D view: {e}")
 
     def _draw_bev_overlay(self, frame_state) -> None:
         """Draw top-down map: vehicle, lane boundaries, MPC path, waypoints."""
@@ -631,11 +719,13 @@ class Dashboard:
         self._render_adas_indicator(0, col_x[0], y, "LDW", ldw_text, ldw_color)
         y += row_h
 
-        # BSW
+        # BSW — bsw_left/right_alert อาจเป็น BSWAlert IntEnum หรือ string
         bsw_l = frame_state.bsw_left_alert
         bsw_r = frame_state.bsw_right_alert
-        bsw_color = COLOR_ERROR if "blind" in bsw_l or "blind" in bsw_r else COLOR_WARNING if "approach" in bsw_l or "approach" in bsw_r else COLOR_SUCCESS
-        bsw_text = f"BSW: L={bsw_l[:4].upper()} R={bsw_r[:4].upper()}"
+        bsw_l_str = str(bsw_l).lower() if bsw_l is not None else "clear"
+        bsw_r_str = str(bsw_r).lower() if bsw_r is not None else "clear"
+        bsw_color = COLOR_ERROR if "blind" in bsw_l_str or "blind" in bsw_r_str else COLOR_WARNING if "approach" in bsw_l_str or "approach" in bsw_r_str else COLOR_SUCCESS
+        bsw_text = f"BSW: L={bsw_l_str[:4].upper()} R={bsw_r_str[:4].upper()}"
         self._render_adas_indicator(1, col_x[0], y, "BSW", bsw_text, bsw_color)
         y += row_h
 
@@ -649,7 +739,7 @@ class Dashboard:
             tsr_text += "---"
         if tl != "unknown":
             tl_color = COLOR_ERROR if tl == "red" else COLOR_WARNING if tl == "yellow" else COLOR_SUCCESS
-            tsr_text += f" | {tl.upper()}"
+            tsr_text += f" | {str(tl).upper()}"
         else:
             tl_color = COLOR_TEXT_DIM
         self._render_adas_indicator(0, col_x[0], y, "TSR", tsr_text, tl_color)
@@ -658,7 +748,7 @@ class Dashboard:
         # TJA
         tja_active = frame_state.tja_active
         tja_color = COLOR_SUCCESS if tja_active else COLOR_TEXT_DIM
-        tja_text = f"TJA: {frame_state.tja_state.upper()}"
+        tja_text = f"TJA: {str(frame_state.tja_state).upper()}"
         self._render_adas_indicator(1, col_x[0], y, "TJA", tja_text, tja_color)
 
         # Right column: LKA Pro
@@ -679,14 +769,14 @@ class Dashboard:
         # TSR action
         action = frame_state.tsr_action
         action_color = COLOR_ERROR if action == "stop" else COLOR_WARNING if action == "slow" else COLOR_SUCCESS if action == "proceed" else COLOR_TEXT_DIM
-        action_text = f"Action: {action.upper()}"
+        action_text = f"Action: {str(action).upper()}"
         self._render_adas_indicator(0, col_x[1], y2, "ACT", action_text, action_color)
         y2 += row_h
 
         # Stuck recovery
         stuck = frame_state.stuck_recovery_active
         stuck_color = COLOR_ERROR if stuck else COLOR_TEXT_DIM
-        stuck_text = f"Stuck: {frame_state.stuck_recovery_phase.upper() if stuck else 'NONE'}"
+        stuck_text = f"Stuck: {str(frame_state.stuck_recovery_phase).upper() if stuck else 'NONE'}"
         self._render_adas_indicator(1, col_x[1], y2, "STK", stuck_text, stuck_color)
         y2 += row_h
 
@@ -757,6 +847,210 @@ class Dashboard:
         self.render_text("target km/h", (self.panel_w - 120, y + 55),
                          color=COLOR_TEXT_DIM, font=self.tiny_font)
 
+    # ── Factory HMI: render gauges ──────────────────────────────────────────
+
+    def render_hmi_gauges(self, frame_state, target_speed_kmh: float,
+                          fps: float) -> None:
+        """Render factory HMI gauges onto ``self.hmi_surface``.
+
+        วาด industrial gauges ทั้งหมด (speedometer, steering, pedals, MPC status,
+        CTE, heading, curvature, lane confidence, lane health) ลงบน hmi_surface.
+        ถ้า HMI renderer ไม่พร้อมจะ return โดยไม่ error.
+        """
+        if not self._initialized or self.hmi_surface is None:
+            return
+        try:
+            self.hmi_surface.fill(COLOR_PANEL)
+            if self.hmi_renderer is not None:
+                self.hmi_renderer.render(self.hmi_surface, frame_state,
+                                         target_speed_kmh, fps)
+        except Exception as e:
+            logger.warning(f"HMI gauge render failed: {e}")
+
+    # ── Factory HMI: render health bar ──────────────────────────────────────
+
+    def render_health_bar(self, frame_state) -> None:
+        """Render lane health strip (P1-P5 + geometry_valid + confidence).
+
+        วาดลงบน ``self.health_surface`` (30px สูง, เต็มความกว้าง).
+        ใช้ HmiGaugeRenderer.draw_lane_health ถ้ามี, มิฉะนั้น fallback วาดด้วย pygame.
+        """
+        if not self._initialized or self.health_surface is None:
+            return
+        try:
+            self.health_surface.fill(COLOR_PANEL)
+
+            if frame_state is None:
+                return
+
+            phases = [
+                getattr(frame_state, "phase_p1_ok", False),
+                getattr(frame_state, "phase_p2_ok", False),
+                getattr(frame_state, "phase_p3_ok", False),
+                getattr(frame_state, "phase_p4_ok", False),
+                getattr(frame_state, "phase_p5_ok", False),
+            ]
+            geom_valid = getattr(frame_state, "geometry_valid", False)
+            lane_conf = getattr(frame_state, "lane_conf", 0.0)
+
+            # Track history for trend analysis
+            self._conf_history.append(lane_conf)
+            self._geom_history.append(geom_valid)
+
+            if self.hmi_renderer is not None:
+                # Use the factory HMI renderer's lane health strip
+                self.hmi_renderer.draw_lane_health(
+                    self.health_surface,
+                    (0, 0, DASH_W, HEALTH_BAR_H),
+                    phases, geom_valid, lane_conf,
+                )
+            else:
+                # Fallback: simple LED strip with pygame
+                self._render_health_bar_fallback(phases, geom_valid, lane_conf)
+
+        except Exception as e:
+            logger.warning(f"Health bar render failed: {e}")
+
+    def _render_health_bar_fallback(self, phases, geom_valid, lane_conf) -> None:
+        """Fallback lane health bar without HMI renderer (pygame only)."""
+        # Label
+        self.render_text("LANE HEALTH", (6, 6),
+                         color=COLOR_TEXT_DIM, font=self.tiny_font,
+                         surface=self.health_surface)
+
+        # Phase LEDs
+        led_r = 6
+        led_gap = 26
+        led_start_x = 100
+        led_y = HEALTH_BAR_H // 2
+        phase_labels = ["P1", "P2", "P3", "P4", "P5"]
+
+        for i in range(5):
+            led_x = led_start_x + i * led_gap
+            ok = bool(phases[i]) if i < len(phases) else False
+            color = COLOR_SUCCESS if ok else COLOR_ERROR
+            pygame.draw.circle(self.health_surface, color, (led_x, led_y), led_r)
+            self.render_text(phase_labels[i], (led_x - 6, led_y + led_r + 1),
+                             color=COLOR_TEXT_DIM, font=self.tiny_font,
+                             surface=self.health_surface)
+
+        # Geometry valid LED
+        geom_x = led_start_x + 5 * led_gap + 10
+        geom_color = COLOR_SUCCESS if geom_valid else COLOR_ERROR
+        pygame.draw.circle(self.health_surface, geom_color, (geom_x, led_y), led_r)
+        self.render_text("GEOM", (geom_x - 8, led_y + led_r + 1),
+                         color=COLOR_TEXT_DIM, font=self.tiny_font,
+                         surface=self.health_surface)
+
+        # Confidence bar
+        conf_x = geom_x + 40
+        conf_w = DASH_W - conf_x - 80
+        conf_h = 10
+        conf_y = led_y - conf_h // 2
+        pygame.draw.rect(self.health_surface, (60, 60, 80),
+                         (conf_x, conf_y, conf_w, conf_h), border_radius=3)
+        conf_fill_w = int(conf_w * max(0.0, min(1.0, lane_conf)))
+        conf_color = (COLOR_SUCCESS if lane_conf > 0.7
+                      else COLOR_WARNING if lane_conf > 0.4
+                      else COLOR_ERROR)
+        if conf_fill_w > 0:
+            pygame.draw.rect(self.health_surface, conf_color,
+                             (conf_x, conf_y, conf_fill_w, conf_h),
+                             border_radius=3)
+        self.render_text(f"{lane_conf * 100:.0f}%", (conf_x + conf_w + 4, conf_y - 2),
+                         color=COLOR_TEXT, font=self.tiny_font,
+                         surface=self.health_surface)
+
+    # ── Factory HMI: render event timeline ───────────────────────────────────
+
+    def render_event_timeline(self, events=None) -> None:
+        """Render event timeline onto ``self.timeline_surface``.
+
+        วาด event/alarm timeline ลงบน timeline_surface (40px สูง).
+        ใช้ EventTimelinePanel.draw ถ้ามี, มิฉะนั้น fallback วาดง่ายๆ.
+
+        Args:
+            events: optional list ของ event dicts ที่จะเพิ่มเข้า timeline
+                    (แต่ละ dict มี event_type, severity, message, frame_idx, timestamp)
+        """
+        if not self._initialized or self.timeline_surface is None:
+            return
+        try:
+            self.timeline_surface.fill(COLOR_PANEL)
+
+            # Add any new events to the timeline panel
+            if events and self.event_timeline_panel is not None:
+                for evt in events:
+                    try:
+                        self.event_timeline_panel.add_event(
+                            event_type=evt.get("event_type", "unknown"),
+                            severity=evt.get("severity", "info"),
+                            message=evt.get("message", ""),
+                            frame_idx=evt.get("frame_idx", 0),
+                            timestamp=evt.get("timestamp", 0.0),
+                            context=evt.get("context"),
+                        )
+                    except Exception:
+                        pass
+
+            if self.event_timeline_panel is not None:
+                # Draw the timeline panel onto our surface
+                # The panel's rect was set to (0, TIMELINE_Y, DASH_W, TIMELINE_H)
+                # but we draw onto timeline_surface which is (DASH_W, TIMELINE_H)
+                # so we need to draw at (0, 0) relative to the surface
+                import time as _time
+                try:
+                    self.event_timeline_panel.draw(self.timeline_surface,
+                                                   _time.time())
+                except Exception as e:
+                    logger.debug(f"Event timeline draw failed: {e}")
+            else:
+                # Fallback: simple status text
+                self.render_text("Event Timeline (factory HMI unavailable)",
+                                 (10, 10),
+                                 color=COLOR_TEXT_DIM, font=self.tiny_font,
+                                 surface=self.timeline_surface)
+
+        except Exception as e:
+            logger.warning(f"Event timeline render failed: {e}")
+
+    def _add_behavior_event(self, event) -> None:
+        """เพิ่ม BehaviorEvent เข้า event timeline panel (เรียกจาก main loop).
+
+        Args:
+            event: BehaviorEvent object จาก BehaviorLogger หรือ dict
+        """
+        if not self._initialized or self.event_timeline_panel is None:
+            return
+        try:
+            # รองรับทั้ง BehaviorEvent object และ dict
+            if hasattr(event, "event_type"):
+                evt_type = event.event_type.value if hasattr(event.event_type, "value") else str(event.event_type)
+                severity = event.severity.value if hasattr(event.severity, "value") else str(event.severity)
+                message = event.message
+                frame_idx = event.frame_idx
+                timestamp = event.timestamp
+                context = getattr(event, "context", None)
+            elif isinstance(event, dict):
+                evt_type = event.get("event_type", "unknown")
+                severity = event.get("severity", "info")
+                message = event.get("message", "")
+                frame_idx = event.get("frame_idx", 0)
+                timestamp = event.get("timestamp", 0.0)
+                context = event.get("context")
+            else:
+                return
+            self.event_timeline_panel.add_event(
+                event_type=evt_type,
+                severity=severity,
+                message=message,
+                frame_idx=frame_idx,
+                timestamp=timestamp,
+                context=context,
+            )
+        except Exception as e:
+            logger.debug(f"Failed to add behavior event to timeline: {e}")
+
     # ── Status bar (bottom) ────────────────────────────────────────────────
 
     def _render_status_bar(self, fps: float, frame_count: int, sim_time: float) -> None:
@@ -792,14 +1086,27 @@ class Dashboard:
             self.screen.fill(COLOR_BG)
 
             # Top bar (rendered directly on panel_surface)
+            # ── Factory HMI: lane health strip (between top bar and center) ──
+            if self.health_surface is not None:
+                self.screen.blit(self.health_surface, (0, HEALTH_BAR_Y))
+
             # Camera view (left)
-            self.screen.blit(self.cam_surface, (0, TOP_BAR_H))
+            self.screen.blit(self.cam_surface, (0, CENTER_Y))
             # BEV map (right)
-            self.screen.blit(self.bev_surface, (CAM_W, TOP_BAR_H))
-            # Metrics panel (bottom-left)
-            self.screen.blit(self.metrics_surface, (0, TOP_BAR_H + CENTER_H))
-            # ADAS panel (bottom-right)
-            self.screen.blit(self.adas_surface, (METRICS_W, TOP_BAR_H + CENTER_H))
+            self.screen.blit(self.bev_surface, (CAM_W, CENTER_Y))
+
+            # ── Bottom area: HMI gauges (left) + metrics/ADAS (right) ──
+            # HMI gauges occupy left half of bottom area
+            if self.hmi_surface is not None:
+                self.screen.blit(self.hmi_surface, (0, BOTTOM_Y))
+            # Metrics panel (right-left of bottom)
+            self.screen.blit(self.metrics_surface, (0, BOTTOM_Y))
+            # ADAS panel (right of bottom)
+            self.screen.blit(self.adas_surface, (METRICS_W, BOTTOM_Y))
+
+            # ── Factory HMI: event timeline (above status bar) ──
+            if self.timeline_surface is not None:
+                self.screen.blit(self.timeline_surface, (0, TIMELINE_Y))
 
             pygame.display.flip()
 
