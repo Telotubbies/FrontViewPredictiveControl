@@ -5,9 +5,10 @@ arbitration step.
 Priority (lowest → highest):
     1. MPC planner output          (baseline)
     2. ADAS (ACC, LKA Pro, ...)    via adas_manager.apply_to_control()
-    3. Safety override             via safety_override.apply_safety_override()
-    4. Stuck recovery              via stuck_recovery.update()
-    5. AEB emergency brake         (force brake=1.0, throttle=0.0)
+    3. Obstacle avoidance (APF)    steering offset + speed reduction
+    4. Safety override             via safety_override.apply_safety_override()
+    5. Stuck recovery              via stuck_recovery.update()
+    6. AEB emergency brake         (force brake=1.0, throttle=0.0)
 
 The arbitrator DELEGATES to the existing classes (composition). It does NOT
 reimplement any override logic — it only sequences the existing calls and logs
@@ -50,9 +51,10 @@ class ControlArbitratorResult:
 _PRIORITY = {
     "mpc": 1,
     "adas": 2,
-    "safety": 3,
-    "stuck": 4,
-    "aeb": 5,
+    "obstacle_avoidance": 3,
+    "safety": 4,
+    "stuck": 5,
+    "aeb": 6,
 }
 
 
@@ -65,16 +67,19 @@ class ControlArbitrator:
     calls in priority order and records what each step changed.
     """
 
-    def __init__(self, safety_override, adas_manager, stuck_recovery):
+    def __init__(self, safety_override, adas_manager, stuck_recovery,
+                 obstacle_avoidance=None):
         """
         Args:
             safety_override: SafetyOverride instance (apply_safety_override).
             adas_manager:    ADASManager instance (apply_to_control).
             stuck_recovery:  StuckRecovery instance (update).
+            obstacle_avoidance: ObstacleAvoidancePlanner instance (optional).
         """
         self._safety = safety_override
         self._adas = adas_manager
         self._stuck = stuck_recovery
+        self._obstacle_avoidance = obstacle_avoidance
 
     # ------------------------------------------------------------------ #
     #  Public API                                                         #
@@ -87,6 +92,10 @@ class ControlArbitrator:
         speed_ms: float,
         frame_state: Optional[Any],
         adas_out: Optional[Any],
+        obstacles: Optional[List[Any]] = None,
+        ego_x: float = 0.0,
+        ego_y: float = 0.0,
+        ego_heading: float = 0.0,
     ) -> ControlArbitratorResult:
         """
         Run the full override chain and return the arbitrated control.
@@ -98,6 +107,8 @@ class ControlArbitrator:
             speed_ms:     Current ego speed (m/s).
             frame_state:  FrameState (used for CTE / heading context).
             adas_out:     ADASControlOutput from ADASManager.update().
+            obstacles:    List of obstacles for avoidance planner.
+            ego_x, ego_y, ego_heading: Ego pose for avoidance planner.
 
         Returns:
             ControlArbitratorResult with final steer/throttle/brake/reverse,
@@ -117,17 +128,25 @@ class ControlArbitrator:
                 steer, throttle, brake, adas_out, log
             )
 
-        # ── 3. Safety override (steering clamp, CTE throttle reduction) ─
+        # ── 3. Obstacle avoidance (APF steering offset + speed reduction)
+        if self._obstacle_avoidance is not None and obstacles:
+            cte = float(getattr(frame_state, "cte_m", 0.0)) if frame_state else 0.0
+            steer, throttle = self._apply_obstacle_avoidance(
+                steer, throttle, obstacles, ego_x, ego_y,
+                ego_heading, speed_ms, cte, log
+            )
+
+        # ── 4. Safety override (steering clamp, CTE throttle reduction) ─
         cte = float(getattr(frame_state, "cte_m", 0.0)) if frame_state else 0.0
         steer, throttle, brake = self._apply_safety(
             steer, throttle, brake, speed_ms, cte, log
         )
 
-        # ── 4. Stuck recovery (brake → reverse → forward) ──────────────
+        # ── 5. Stuck recovery (brake → reverse → forward) ──────────────
         reverse = self._apply_stuck(steer, throttle, brake, speed_ms,
                                     log, reverse)
 
-        # ── 5. AEB emergency brake (highest priority) ──────────────────
+        # ── 6. AEB emergency brake (highest priority) ──────────────────
         if adas_out is not None:
             steer, throttle, brake = self._apply_aeb(
                 steer, throttle, brake, adas_out, log
@@ -148,6 +167,30 @@ class ControlArbitrator:
     # ------------------------------------------------------------------ #
     #  Override steps (delegate to existing classes)                      #
     # ------------------------------------------------------------------ #
+    def _apply_obstacle_avoidance(self, steer, throttle, obstacles,
+                                   ego_x, ego_y, ego_heading, speed_ms,
+                                   cte, log):
+        """Priority 3 — Obstacle avoidance (APF steering offset + speed reduction)."""
+        try:
+            result = self._obstacle_avoidance.compute_avoidance(
+                obstacles, ego_x, ego_y, ego_heading, speed_ms, cte
+            )
+        except Exception as e:
+            logger.debug(f"Obstacle avoidance skipped: {e}")
+            return steer, throttle
+
+        if not result.active:
+            return steer, throttle
+
+        new_steer = steer + result.steer_offset
+        new_steer = max(-1.0, min(1.0, new_steer))
+        new_throttle = throttle * result.target_speed_factor
+
+        self._record_diff("obstacle_avoidance", steer, throttle, 0.0,
+                          new_steer, new_throttle, 0.0,
+                          result.reason, log)
+        return new_steer, new_throttle
+
     def _apply_adas(self, steer, throttle, brake, adas_out, log):
         """Priority 2 — ADAS via adas_manager.apply_to_control()."""
         try:

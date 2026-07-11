@@ -97,22 +97,40 @@ class TrafficSignRecognizer:
         try:
             results: list = []
 
-            # Vehicle location
+            # Vehicle location + heading
             v_loc = vehicle_transform.location
+            v_rot = vehicle_transform.rotation
             vx, vy, vz = v_loc.x, v_loc.y, v_loc.z
+            v_yaw_rad = math.radians(v_rot.yaw)
+            # Forward direction vector
+            fwd_x = math.cos(v_yaw_rad)
+            fwd_y = math.sin(v_yaw_rad)
 
             # --- Traffic lights ---
+            # ลดระยะตรวจจับเป็น 30m และเช็คว่าอยู่ข้างหน้ารถเท่านั้น
+            tl_range = min(30.0, self.max_detection_range_m)
             for actor in world.get_actors():
                 tl = self._as_traffic_light(actor)
                 if tl is None:
                     continue
                 t_loc = tl.get_location()
-                dist = math.sqrt(
-                    (t_loc.x - vx) ** 2
-                    + (t_loc.y - vy) ** 2
-                    + (t_loc.z - vz) ** 2
-                )
-                if dist >= self.max_detection_range_m:
+                dx = t_loc.x - vx
+                dy = t_loc.y - vy
+                dist = math.sqrt(dx * dx + dy * dy)
+                if dist >= tl_range:
+                    continue
+                # เช็คว่าอยู่ข้างหน้ารถ (dot product > 0)
+                dot = dx * fwd_x + dy * fwd_y
+                if dot < 0:
+                    continue  # อยู่ข้างหลังรถ ข้าม
+                # ถ้า traffic light ใกล้เกินไป (< 5m) ให้ข้าม
+                # เพราะน่าจะผ่านไปแล้ว หรืออยู่ในจุดที่รถไม่สามารถหยุดได้
+                if dist < 5.0:
+                    continue
+                # เช็คว่าอยู่ในแนวเดียวกับรถ (lateral offset < 7m)
+                # เพื่อกรอง traffic light ของเลนอื่น/ทางแยก
+                lateral = abs(-dx * fwd_y + dy * fwd_x)
+                if lateral > 7.0:
                     continue
                 state = self._carla_light_state(tl.get_state())
                 results.append(

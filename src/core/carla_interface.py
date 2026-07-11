@@ -61,6 +61,8 @@ class CarlaInterface:
             self.client.set_timeout(self.timeout)
             self.world = self.client.get_world()
             self.blueprint_library = self.world.get_blueprint_library()
+            self._sync_mode = False
+
             logger.info(f"Connected to CARLA server at {self.host}:{self.port}")
             return True
         except Exception as e:
@@ -76,8 +78,35 @@ class CarlaInterface:
             return False
 
         try:
-            # Get vehicle blueprint
-            blueprint = self.blueprint_library.filter(vehicle_model)[0]
+            # Get vehicle blueprint — try exact match first, then fallback to any lincoln.mkz
+            try:
+                blueprint = self.blueprint_library.filter(vehicle_model)[0]
+            except IndexError:
+                # Fallback: try lincoln.mkz variants (mkz_2017, mkz_2020) then any 4-wheel vehicle
+                fallbacks = ["vehicle.lincoln.mkz_2017", "vehicle.lincoln.mkz_2020",
+                             "vehicle.tesla.model3", "vehicle.toyota.prius",
+                             "vehicle.audi.a2", "vehicle.nissan.micra"]
+                blueprint = None
+                for fb in fallbacks:
+                    matches = self.blueprint_library.filter(fb)
+                    if matches:
+                        blueprint = matches[0]
+                        vehicle_model = fb
+                        logger.info(f"Vehicle '{vehicle_model}' not found, using fallback: {fb}")
+                        break
+                if blueprint is None:
+                    # Last resort: any car (not bike/motorcycle)
+                    for bp in self.blueprint_library.filter('vehicle.*'):
+                        bp_id = bp.id
+                        if not any(x in bp_id for x in ['bike', 'motorcycle', 'cyclist',
+                                                         'scooter', 'omafiets', 'century',
+                                                         'ninja', 'low_rider', 'zx125']):
+                            blueprint = bp
+                            vehicle_model = bp_id
+                            break
+                if blueprint is None:
+                    logger.error(f"No suitable vehicle blueprint found")
+                    return False
             blueprint.set_attribute('role_name', 'ego_vehicle')
 
             # Get spawn point — try multiple points to find one without collision
@@ -92,6 +121,29 @@ class CarlaInterface:
                         self.vehicle = self.world.spawn_actor(blueprint, sp)
                         if self.vehicle:
                             logger.info(f"Spawned {vehicle_model} at spawn point #{i}")
+                            # ── Initialize vehicle control: ปลด hand brake + ตั้ง gear ──
+                            # CARLA 0.9.x: รถใหม่ spawn มี hand_brake=True และ
+                            # manual_gear_shift=True บางครั้ง ทำให้รถไม่ขยับ
+                            init_ctrl = self.vehicle.get_control()
+                            init_ctrl.hand_brake = False
+                            init_ctrl.brake = 0.0
+                            init_ctrl.reverse = False
+                            init_ctrl.manual_gear_shift = False
+                            init_ctrl.gear = 1
+                            init_ctrl.throttle = 0.0
+                            init_ctrl.steer = 0.0
+                            self.vehicle.apply_control(init_ctrl)
+                            # ให้ world tick หนึ่งครั้งเพื่อให้ control มีผล
+                            try:
+                                self.world.tick()
+                            except Exception:
+                                pass
+                            # อีกครั้งหลัง tick (manual_gear_shift อาจ reset)
+                            init_ctrl.manual_gear_shift = False
+                            init_ctrl.gear = 1
+                            init_ctrl.hand_brake = False
+                            self.vehicle.apply_control(init_ctrl)
+                            logger.info("Vehicle control initialized (hand_brake off, gear=1)")
                             return True
                     except Exception:
                         continue
@@ -226,6 +278,17 @@ class CarlaInterface:
                 self.vehicle.destroy()
                 self.vehicle = None
                 logger.info("Vehicle destroyed")
+
+            # คืนค่า async mode
+            if getattr(self, '_sync_mode', False):
+                try:
+                    settings = self.world.get_settings()
+                    settings.synchronous_mode = False
+                    settings.fixed_delta_seconds = None
+                    self.world.apply_settings(settings)
+                    logger.info("CARLA restored to asynchronous mode")
+                except Exception:
+                    pass
 
         except Exception as e:
             logger.error(f"Error during cleanup: {e}")

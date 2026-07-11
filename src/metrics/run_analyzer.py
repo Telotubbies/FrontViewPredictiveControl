@@ -197,6 +197,14 @@ class RunAnalyzer:
                 "lane_conf_mean": round(float(np.mean(lane_conf)), 4),
                 "lane_conf_min": round(float(np.min(lane_conf)), 4),
                 "geometry_valid_rate": round(geometry_valid_count / max(1, n) * 100, 2),
+                "lane_conf_drop_frames": sum(1 for f in frames if f.get("lane_conf_drop", False) in (True, "True", "true", 1)),
+                "lane_lost_frames": sum(1 for f in frames if f.get("lane_lost", False) in (True, "True", "true", 1)),
+                "off_track_frames": sum(1 for f in frames if f.get("off_track", False) in (True, "True", "true", 1)),
+                "phase_p1_fail_rate": round(sum(1 for f in frames if not f.get("phase_p1_ok", True)) / max(1, n) * 100, 2),
+                "phase_p2_fail_rate": round(sum(1 for f in frames if not f.get("phase_p2_ok", True)) / max(1, n) * 100, 2),
+                "phase_p3_fail_rate": round(sum(1 for f in frames if not f.get("phase_p3_ok", True)) / max(1, n) * 100, 2),
+                "phase_p4_fail_rate": round(sum(1 for f in frames if not f.get("phase_p4_ok", True)) / max(1, n) * 100, 2),
+                "phase_p5_fail_rate": round(sum(1 for f in frames if not f.get("phase_p5_ok", True)) / max(1, n) * 100, 2),
             },
             "safety": {
                 "aeb_events": aeb_count,
@@ -308,7 +316,23 @@ class RunAnalyzer:
         fig.savefig(self.plots_dir / "mpc_solve_time_hist.png", dpi=100)
         plt.close(fig)
 
-        logger.info(f"Generated 5 plots in {self.plots_dir}")
+        # 6. Lane confidence over time
+        fig, ax = plt.subplots(figsize=(12, 4))
+        conf_arr = np.array([f.get("lane_conf", 0.0) for f in frames])
+        ax.plot(timestamps, conf_arr, linewidth=0.8, color="purple", label="Lane confidence")
+        ax.axhline(y=0.3, color="red", linestyle="--", alpha=0.5, label="Drop threshold (0.3)")
+        ax.axhline(y=0.7, color="green", linestyle="--", alpha=0.5, label="Good (0.7)")
+        ax.set_xlabel("Time (s)")
+        ax.set_ylabel("Confidence")
+        ax.set_title("Lane Detection Confidence Over Time")
+        ax.set_ylim(-0.05, 1.05)
+        ax.legend()
+        ax.grid(True, alpha=0.3)
+        fig.tight_layout()
+        fig.savefig(self.plots_dir / "lane_conf_over_time.png", dpi=100)
+        plt.close(fig)
+
+        logger.info(f"Generated 6 plots in {self.plots_dir}")
 
     def _write_report(self, kpis: Dict[str, Any]) -> None:
         """เขียน report.md (มนุษย์อ่านได้)"""
@@ -379,6 +403,14 @@ class RunAnalyzer:
 | Lane Conf Mean | {pc['lane_conf_mean']} |
 | Lane Conf Min | {pc['lane_conf_min']} |
 | Geometry Valid | {pc['geometry_valid_rate']}% |
+| Conf Drop Frames | {pc.get('lane_conf_drop_frames', 0)} |
+| Lane Lost Frames | {pc.get('lane_lost_frames', 0)} |
+| Off-Track Frames | {pc.get('off_track_frames', 0)} |
+| Phase P1 Fail Rate | {pc.get('phase_p1_fail_rate', 0)}% |
+| Phase P2 Fail Rate | {pc.get('phase_p2_fail_rate', 0)}% |
+| Phase P3 Fail Rate | {pc.get('phase_p3_fail_rate', 0)}% |
+| Phase P4 Fail Rate | {pc.get('phase_p4_fail_rate', 0)}% |
+| Phase P5 Fail Rate | {pc.get('phase_p5_fail_rate', 0)}% |
 
 ## Safety Events
 | Event | Count |
@@ -410,6 +442,7 @@ class RunAnalyzer:
 - `plots/steering_over_time.png` — Steering commands
 - `plots/events_timeline.png` — Safety events timeline
 - `plots/mpc_solve_time_hist.png` — MPC solve time distribution
+- `plots/lane_conf_over_time.png` — Lane detection confidence over time
 
 ## Overall Assessment
 """

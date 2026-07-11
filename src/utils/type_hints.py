@@ -33,6 +33,7 @@ except ImportError:
 class DetectionMode(Enum):
     """Lane detection mode"""
     UNET = "unet"
+    DSUNET = "dsunet"
     CLASSICAL = "classical"
     HYBRID = "hybrid"
 

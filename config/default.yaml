@@ -91,11 +91,11 @@ lane:
 reference_mpc:
   CTE_LANE_HALF_WIDTH_M: 0.55
   MAX_CURVATURE_REF: 0.035
-  STEER_SMOOTH_ALPHA: 0.80  # เพิ่มจาก 0.70 → 0.80 เพื่อ smooth มากขึ้น
+  STEER_SMOOTH_ALPHA: 0.50  # ลดจาก 0.80 → 0.50 เพื่อตอบโค้งเร็วขึ้น
   # Rate limit steering change per frame (CARLA units) to reduce oscillation when perception mode switches
-  STEER_MAX_DELTA_PER_FRAME: 0.03  # ลดจาก 0.05 → 0.03 เพื่อลดการเปลี่ยนแปลงรุนแรง
+  STEER_MAX_DELTA_PER_FRAME: 0.08  # เพิ่มจาก 0.03 → 0.08 เพื่อให้หักพวงในโค้งได้
   STEER_RATE_LIMIT_SPEED_KMH: 40.0
-  STEER_MAX_DELTA_HIGH_SPEED: 0.02  # ลดจาก 0.03 → 0.02
+  STEER_MAX_DELTA_HIGH_SPEED: 0.05  # เพิ่มจาก 0.02 → 0.05
   USE_TRAJECTORY_PIPELINE: true  # เปิดกลับมา - ใช้ UNet threshold 0.2
   LANE_EMA_ALPHA: 0.38
   STATE_EMA_ALPHA: 0.10  # ลดจาก 0.20 → 0.10 เพื่อ responsive มากขึ้น

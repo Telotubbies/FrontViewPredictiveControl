@@ -244,6 +244,17 @@ class AEBACC:
             'acc_target_speed': self._last_acc.target_speed_ms,
         }
 
+    def get_collision_warning_level(self) -> str:
+        """ระดับคำเนตยนต์การชน (none | caution | warning | critical) สำหรับ ADASManager."""
+        ttc = self._last_aeb.ttc
+        if self._last_aeb.active and ttc < self.ttc_critical:
+            return "critical"
+        if self._last_aeb.active:
+            return "warning"
+        if ttc < self.ttc_threshold * 1.5:
+            return "caution"
+        return "none"
+
     def reset(self):
         self._last_aeb = AEBResult()
         self._last_acc = ACCResult()

@@ -13,15 +13,15 @@ logger = logging.getLogger(__name__)
 class StuckRecovery:
     """Detect stuck condition and execute brake → reverse → forward recovery."""
 
-    STUCK_THRESHOLD = 280
-    STUCK_CONFIRM_FRAMES = 5
-    STUCK_SPEED_MS = 0.18
-    STUCK_THROTTLE_MIN = 0.35
-    COOLDOWN_AFTER_RECOVERY = 100
-    BRAKE_FRAMES = 12
-    REVERSE_FRAMES = 40
-    MAX_RECOVERY_ATTEMPTS = 3
-    PROGRESS_SPEED_MS = 0.5
+    STUCK_THRESHOLD = 60       # ลดจาก 280 → 60 (3 วินาที)
+    STUCK_CONFIRM_FRAMES = 3   # ลดจาก 5 → 3
+    STUCK_SPEED_MS = 0.5       # เพิ่มจาก 0.18 → 0.5 (1.8 km/h)
+    STUCK_THROTTLE_MIN = 0.30
+    COOLDOWN_AFTER_RECOVERY = 50
+    BRAKE_FRAMES = 8
+    REVERSE_FRAMES = 30
+    MAX_RECOVERY_ATTEMPTS = 5
+    PROGRESS_SPEED_MS = 1.0    # เพิ่มจาก 0.5 → 1.0
 
     def __init__(self) -> None:
         self._n = 0
@@ -102,14 +102,15 @@ class StuckRecovery:
 
         if self._phase == "reverse":
             if self._counter < self.REVERSE_FRAMES:
-                steer = 0.3 * sin(self._counter * 0.3)
-                return steer, 0.4, 0.0, True
+                # ถอยตรงๆ ไม่เลี้ยว เพื่อให้หลุดจากจุดติด
+                return 0.0, -0.5, 0.0, True  # negative throttle = reverse
             self._phase = "forward"
             self._counter = 0
 
         if self._phase == "forward":
-            if self._counter < 25:
-                return 0.0, 0.6, 0.0, False
+            if self._counter < 30:
+                # เร่งเครื่องไปข้างหน้าแรงๆ
+                return 0.0, 0.8, 0.0, False
             self._phase = "idle"
             self._counter = 0
             self.just_recovered = True

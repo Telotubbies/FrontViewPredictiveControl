@@ -30,12 +30,12 @@ class RoadPerception:
 
     EMA = 0.25
 
-    def __init__(self, model_path: str, device) -> None:
+    def __init__(self, model_path: str, device, model_type: str = "unet") -> None:
         self.dev = device
         self.detector = LaneDetector(
-            model_path=model_path, use_carla=False, model_type="unet"
+            model_path=model_path, use_carla=False, model_type=model_type
         )
-        logger.info("UNet loaded (legacy RoadPerception)")
+        logger.info(f"{model_type.upper()} loaded (legacy RoadPerception)")
         self.reset()
 
     def reset(self) -> None:
@@ -194,12 +194,12 @@ class BEVRoadPerception:
 
     EMA = 0.25
 
-    def __init__(self, model_path: str, device) -> None:
+    def __init__(self, model_path: str, device, model_type: str = "unet") -> None:
         self.dev = device
         self.detector = LaneDetector(
-            model_path=model_path, use_carla=False, model_type="unet"
+            model_path=model_path, use_carla=False, model_type=model_type
         )
-        logger.info("UNet loaded with BEV pipeline (BEVRoadPerception)")
+        logger.info(f"{model_type.upper()} loaded with BEV pipeline (BEVRoadPerception)")
         self.reset()
 
     def reset(self) -> None:

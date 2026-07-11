@@ -34,10 +34,12 @@ class PerceptionManager:
     def __init__(self,
                  model_path: Optional[str] = None,
                  detection_mode: DetectionMode = DetectionMode.UNET,
-                 use_threading: bool = True):
+                 use_threading: bool = True,
+                 model_type: str = "unet"):
         self.model_path = model_path
         self.detection_mode = detection_mode
         self.use_threading = use_threading
+        self.model_type = model_type
 
         # Configuration
         self.config = get_config()
@@ -95,9 +97,10 @@ class PerceptionManager:
                 model_path=self.model_path,
                 device=self.device,
                 target_speed_kmh=self.config.TARGET_SPEED_KMH,
-                use_trajectory_pipeline=self.config.USE_TRAJECTORY_PIPELINE
+                use_trajectory_pipeline=self.config.USE_TRAJECTORY_PIPELINE,
+                model_type=self.model_type,
             )
-            logger.info("UNet lane detection pipeline initialized")
+            logger.info(f"{self.model_type.upper()} lane detection pipeline initialized")
         except ImportError as e:
             logger.error(f"Failed to import UNet pipeline: {e}")
             raise

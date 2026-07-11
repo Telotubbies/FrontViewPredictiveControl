@@ -10,6 +10,7 @@ Refactored main module that provides clean entry point for:
 """
 
 import argparse
+import json
 import logging
 import math
 import queue
@@ -27,18 +28,24 @@ setup_carla_paths()
 # Import core modules
 from core.carla_interface import CarlaInterface
 from gui.dashboard import Dashboard
+from gui.gui_process_bridge import GuiProcessBridge
 
 # Import system components
 from pipeline import LKAPipeline
 from safety.override import SafetyOverride
 from safety.stuck_recovery import StuckRecovery
 from safety.emergency_braking_adaptive_cruise_control import AEBACC
+from safety.obstacle_avoidance import ObstacleAvoidancePlanner
 from adas.adas_manager import ADASManager
 from control.arbitrator import ControlArbitrator
 from bridge.obstacles import get_traffic_obstacles
 from carla_input_output import get_waypoints, waypoints_to_cte_heading
 from telemetry.influxdb_exporter import TelemetryExporter
 from telemetry.metrics_collector import MetricsCollector
+from telemetry.behavior_logger import BehaviorLogger
+from telemetry.behavior_context_logger import BehaviorContextLogger
+from telemetry.lane_loss_detector import LaneLossDetector
+from telemetry.ai_report_generator import AiReportGenerator
 from metrics.run_logger import RunLogger
 from metrics.realtime_stats import RealTimeStats
 from metrics.run_analyzer import RunAnalyzer
@@ -72,16 +79,19 @@ class CARLAMPCSystem:
                  target_speed_kmh: float = TARGET_SPEED_KMH,
                  use_classical: bool = False,
                  no_gui: bool = False,
-                 metrics_dir: str = "metrics_output"):
+                 metrics_dir: str = "metrics_output",
+                 model_type: str = "unet"):
         self.model_path = model_path
         self.target_speed_kmh = target_speed_kmh
         self.use_classical = use_classical
         self.no_gui = no_gui
         self.metrics_dir = metrics_dir
+        self.model_type = model_type
 
         # System components
         self.carla: Optional[CarlaInterface] = None
         self.dashboard: Optional[Dashboard] = None
+        self.gui_bridge: Optional[GuiProcessBridge] = None
         self.pipeline: Optional[LKAPipeline] = None
         self.safety: Optional[SafetyOverride] = None
         self.stuck_recovery: Optional[StuckRecovery] = None
@@ -93,9 +103,21 @@ class CARLAMPCSystem:
         self.run_logger: Optional[RunLogger] = None
         self.realtime_stats: Optional[RealTimeStats] = None
 
+        # Behavior + lane-loss telemetry (wired into main loop)
+        self.behavior_logger: Optional[BehaviorLogger] = None
+        self.context_logger: Optional[BehaviorContextLogger] = None
+        self.lane_loss_detector: Optional[LaneLossDetector] = None
+        self.ai_report_gen: Optional[AiReportGenerator] = None
+
         # Control state (persisted between frames for smoothing)
         self._prev_steer = 0.0
         self._prev_throttle = 0.0
+
+        # Background control refresher — ส่ง control ซ้ำทุก 50ms เพื่อให้
+        # CARLA 0.9.x async mode ไม่หยุดรถเมื่อ main loop ช้า
+        self._control_thread = None
+        self._latest_control = None
+        self._control_thread_running = False
 
         # Device setup — supports CUDA (NVIDIA) and ROCm (AMD)
         from utils.device_utils import get_device
@@ -125,20 +147,22 @@ class CARLAMPCSystem:
                 return False
 
             # Initialize dashboard if not disabled
+            # GUI runs in a SEPARATE PROCESS to avoid blocking the control loop
             if not self.no_gui:
-                self.dashboard = Dashboard()
-                if not self.dashboard.initialize():
-                    logger.warning("Failed to initialize dashboard, continuing without GUI")
-                    self.dashboard = None
+                self.gui_bridge = GuiProcessBridge(target_speed_kmh=self.target_speed_kmh)
+                if not self.gui_bridge.start():
+                    logger.warning("Failed to start GUI process, continuing without GUI")
+                    self.gui_bridge = None
 
             # Initialize perception pipeline
             self.pipeline = LKAPipeline(
                 model_path=self.model_path,
                 device=self.device,
                 target_speed_kmh=self.target_speed_kmh,
-                use_trajectory_pipeline=USE_TRAJECTORY_PIPELINE
+                use_trajectory_pipeline=USE_TRAJECTORY_PIPELINE,
+                model_type=self.model_type,
             )
-            logger.info(f"Pipeline initialized: {'Classical' if self.use_classical else 'UNet'}")
+            logger.info(f"Pipeline initialized: {'Classical' if self.use_classical else self.model_type.upper()}")
 
             # Initialize safety systems
             self.safety = SafetyOverride({
@@ -148,11 +172,15 @@ class CARLAMPCSystem:
             })
             self.stuck_recovery = StuckRecovery()
             self.aeb_acc = AEBACC()
-            self.adas = ADASManager(aeb_acc=self.aeb_acc)
+            self.obstacle_avoidance = ObstacleAvoidancePlanner()
+            # TSR ปิดชั่วคราว — CARLA 0.9.16 มี traffic light แดงตลอดเวลา
+            # ทำให้รถไม่สามารถขับได้ สามารถเปิดได้ใน CARLA เวอร์ชั่นที่ traffic light เป็น green บ้าง
+            self.adas = ADASManager(aeb_acc=self.aeb_acc, enable_tsr=False)
             self.arbitrator = ControlArbitrator(
                 safety_override=self.safety,
                 adas_manager=self.adas,
                 stuck_recovery=self.stuck_recovery,
+                obstacle_avoidance=self.obstacle_avoidance,
             )
             self.telemetry = TelemetryExporter(enabled=True)
             self.metrics_collector = MetricsCollector(output_dir=self.metrics_dir)
@@ -177,12 +205,53 @@ class CARLAMPCSystem:
             )
             logger.info(f"Run logging → {run_dir}/")
 
+            # ── Behavior + Lane Loss telemetry ───────────────────────
+            # บันทึกพฤติกรรมรถ + root-cause analysis ของ lane loss
+            self.behavior_logger = BehaviorLogger(snapshot_dir=run_dir)
+            self.context_logger = BehaviorContextLogger()
+            self.lane_loss_detector = LaneLossDetector()
+            self.ai_report_gen = AiReportGenerator()
+            logger.info("Behavior telemetry initialized (BehaviorLogger + ContextLogger + LaneLossDetector)")
+
+            # ── เริ่ม background control refresher ──────────────────────
+            # ส่ง control ซ้ำทุก 50ms เพื่อให้รถขยับใน async mode
+            # โดยเฉพาะในโหมด GUI ที่ main loop ช้ากว่า 20 FPS
+            self._start_control_thread()
+
             logger.info("System initialization completed — Full ADAS suite active")
             return True
 
         except Exception as e:
             logger.error(f"System initialization failed: {e}")
             return False
+
+    def _start_control_thread(self):
+        """เริ่ม background thread ที่ส่ง control ซ้ำทุก 50ms.
+        CARLA 0.9.x async mode: ถ้า apply_control ไม่ถูกเรียกบ่อยพอ รถจะหยุด
+        """
+        import threading
+        self._control_thread_running = True
+
+        def _refresh_loop():
+            while self._control_thread_running:
+                ctrl = self._latest_control
+                if ctrl is not None and self.carla and self.carla.vehicle:
+                    try:
+                        self.carla.vehicle.apply_control(ctrl)
+                    except Exception:
+                        pass
+                time.sleep(0.05)
+
+        self._control_thread = threading.Thread(target=_refresh_loop, daemon=True)
+        self._control_thread.start()
+        logger.info("Control refresher thread started (50ms interval)")
+
+    def _stop_control_thread(self):
+        """หยุด background control thread"""
+        self._control_thread_running = False
+        if self._control_thread:
+            self._control_thread.join(timeout=1.0)
+            self._control_thread = None
 
     def run(self) -> int:
         """Main system loop"""
@@ -216,6 +285,7 @@ class CARLAMPCSystem:
                             pass
 
                     rgb_frame = array
+                    self._cam_frame_count = getattr(self, '_cam_frame_count', 0) + 1
                 except Exception as e:
                     logger.error(f"Camera callback error: {e}")
 
@@ -226,19 +296,25 @@ class CARLAMPCSystem:
             while self.running:
                 loop_start_time = time.time()
 
-                # Handle GUI events
-                if self.dashboard:
-                    if not self.dashboard.handle_events():
-                        break
+                # Handle GUI events (check if GUI process requested quit)
+                if self.gui_bridge and self.gui_bridge.should_quit():
+                    break
 
                 # Get RGB frame
                 current_frame = None
                 try:
-                    current_frame = camera_queue.get(timeout=0.1)
+                    current_frame = camera_queue.get(timeout=0.05)
                 except queue.Empty:
                     if rgb_frame is not None:
                         current_frame = rgb_frame
                     else:
+                        # No frame yet — ส่ง control เก่าซ้ำเพื่อให้รถไม่หยุด
+                        if self.carla and self.carla.vehicle and self._latest_control is not None:
+                            try:
+                                self.carla.vehicle.apply_control(self._latest_control)
+                            except Exception:
+                                pass
+                        time.sleep(0.01)
                         continue
 
                 # Get vehicle state
@@ -267,18 +343,26 @@ class CARLAMPCSystem:
                     world=self.carla.world,
                     vehicle=self.carla.vehicle,
                 )
+                if self.frame_count < 10 or self.frame_count % 50 == 0:
+                    cam_cnt = getattr(self, '_cam_frame_count', 0)
+                    logger.debug("frame=%d cam=%d speed=%.2f steer=%.3f thr=%.3f brk=%.3f cte=%.3f conf=%.3f mode=%s",
+                                 self.frame_count, cam_cnt, current_speed_ms, steer, throttle, brake,
+                                 frame_state.cte_m if frame_state else 0,
+                                 frame_state.lane_conf if frame_state else 0,
+                                 frame_state.mode if frame_state else "?")
 
                 # ── Full ADAS Suite ────────────────────────────────────────
                 # AEB + ACC + LDW + LKA Pro + BSW + LCA + TSR + TJA + Stop&Go
                 adas_out = None
+                obstacles = []
+                ego_loc = vehicle_transform.location
+                ego_rot = vehicle_transform.rotation
+                ego_heading = math.radians(ego_rot.yaw)
                 try:
                     obstacles = get_traffic_obstacles(
                         self.carla.world,
                         exclude_actor_id=self.carla.vehicle.id,
                     )
-                    ego_loc = vehicle_transform.location
-                    ego_rot = vehicle_transform.rotation
-                    ego_heading = math.radians(ego_rot.yaw)
                     timestamp = time.time()
 
                     adas_out = self.adas.update(
@@ -325,18 +409,73 @@ class CARLAMPCSystem:
                         logger.debug(
                             "ADAS active: %s", ", ".join(adas_out.active_features)
                         )
+                    # Detailed ADAS status every 100 frames
+                    if self.frame_count % 100 == 0 and self.frame_count > 0:
+                        logger.info(
+                            "ADAS status: AEB=%s ttc=%.2f ACC=%s dist=%.1f "
+                            "LDW=%s/%s LKA=%.3f BSW=L:%s R:%s "
+                            "TJA=%s S&G=%s features=%s",
+                            adas_out.aeb_active, adas_out.aeb_ttc,
+                            adas_out.acc_active, adas_out.acc_distance_m,
+                            adas_out.ldw_state, adas_out.ldw_warning_active,
+                            adas_out.lka_pro_assist,
+                            adas_out.bsw_left_alert, adas_out.bsw_right_alert,
+                            adas_out.tja_state, adas_out.stop_and_go_stopped,
+                            ", ".join(adas_out.active_features) or "none",
+                        )
                 except Exception as e:
                     logger.debug(f"ADAS update skipped: {e}")
 
-                # ── Control arbitration (ADAS → Safety → Stuck → AEB) ──────
+                # ── Control arbitration (ADAS → APF → Safety → Stuck → AEB) ─
                 arb_result = self.arbitrator.arbitrate(
                     mpc_steer=steer, mpc_throttle=throttle, mpc_brake=brake,
                     speed_ms=current_speed_ms, frame_state=frame_state,
                     adas_out=adas_out,
+                    obstacles=obstacles,
+                    ego_x=ego_loc.x,
+                    ego_y=ego_loc.y,
+                    ego_heading=ego_heading,
                 )
                 steer = arb_result.steer
                 throttle = arb_result.throttle
                 brake = arb_result.brake
+
+                # Store obstacle avoidance status for visualization
+                if frame_state and self.obstacle_avoidance:
+                    av_status = self.obstacle_avoidance.get_status()
+                    frame_state.obstacle_avoidance_active = av_status["active"]
+                    frame_state.obstacle_avoidance_side = av_status["avoidance_side"]
+                    frame_state.obstacle_avoidance_shift = av_status["lateral_shift_m"]
+                    frame_state.obstacle_avoidance_dist = av_status["closest_obstacle_dist"]
+                    frame_state.obstacle_avoidance_steer = av_status["steer_offset"]
+                    frame_state.obstacle_count = av_status["num_obstacles"]
+                    # Debug log when obstacles detected
+                    if av_status["num_obstacles"] > 0 and self.frame_count % 10 == 0:
+                        logger.info(
+                            f"APF status: {av_status['num_obstacles']} obs, "
+                            f"closest={av_status['closest_obstacle_dist']:.1f}m, "
+                            f"active={av_status['active']}, "
+                            f"steer_off={av_status['steer_offset']:.3f}"
+                        )
+                    # Store detected obstacles in ego frame for 3D viz
+                    if obstacles and 'ego_loc' in dir() and 'ego_heading' in dir():
+                        import math as _m, numpy as _np
+                        cos_h = _m.cos(ego_heading)
+                        sin_h = _m.sin(ego_heading)
+                        det_obs = []
+                        for obs in obstacles:
+                            try:
+                                dx = obs.position[0] - ego_loc.x
+                                dy = obs.position[1] - ego_loc.y
+                                fwd = dx * cos_h + dy * sin_h
+                                lat = -dx * sin_h + dy * cos_h
+                                dist = _np.sqrt(fwd*fwd + lat*lat)
+                                if 0 < fwd < 50 and abs(lat) < 8:
+                                    det_obs.append((float(fwd), float(lat), float(dist),
+                                                   str(obs.type.name)))
+                            except Exception:
+                                pass
+                        frame_state.detected_obstacles = det_obs
 
                 # ── Telemetry export ───────────────────────────────────
                 if self.telemetry and self.telemetry.is_connected():
@@ -409,12 +548,20 @@ class CARLAMPCSystem:
                         "fps": fps,
                     })
 
-                # Apply control to vehicle
-                carla_control = self.carla.get_vehicle_control()
-                carla_control.steering = steer
-                carla_control.throttle = throttle
-                carla_control.brake = brake
+                # Apply control to vehicle — สร้าง VehicleControl ใหม่ทุก frame
+                # (CARLA 0.9.x: get_vehicle_control() คืนค่า garbage บางครั้ง)
+                import carla as _carla_mod
+                carla_control = _carla_mod.VehicleControl(
+                    throttle=float(throttle),
+                    steer=float(steer),
+                    brake=float(brake),
+                    hand_brake=False,
+                    manual_gear_shift=False,
+                    gear=1,
+                    reverse=False,
+                )
                 self.carla.apply_control(carla_control)
+                self._latest_control = carla_control  # ให้ refresher thread ใช้
 
                 # Persist control state for next frame's smoothing
                 self._prev_steer = steer
@@ -426,11 +573,16 @@ class CARLAMPCSystem:
                 recovery = self.stuck_recovery.update(current_speed_ms, throttle)
                 if recovery is not None:
                     r_steer, r_throttle, r_brake, r_reverse = recovery
-                    carla_control = self.carla.get_vehicle_control()
-                    carla_control.steering = r_steer
-                    carla_control.throttle = r_throttle
-                    carla_control.brake = r_brake
-                    carla_control.reverse = r_reverse
+                    import carla as _carla_mod
+                    carla_control = _carla_mod.VehicleControl(
+                        throttle=float(r_throttle),
+                        steer=float(r_steer),
+                        brake=float(r_brake),
+                        hand_brake=False,
+                        manual_gear_shift=False,
+                        gear=1,
+                        reverse=bool(r_reverse),
+                    )
                     self.carla.apply_control(carla_control)
                     stuck_active = True
                     stuck_phase = getattr(self.stuck_recovery, '_phase', 'unknown')
@@ -454,15 +606,54 @@ class CARLAMPCSystem:
                     frame_state.vehicle_z = ego_loc.z if 'ego_loc' in dir() else 0.0
                     frame_state.vehicle_yaw = ego_heading if 'ego_heading' in dir() else 0.0
 
+                # ── Behavior + Lane Loss telemetry ──────────────────────
+                # บันทึกพฤติกรรม + ตรวจจับ lane loss ทุก frame
+                # (try/except เพื่อไม่ให้ telemetry crash การขับขี่)
+                if frame_state and self.behavior_logger:
+                    try:
+                        loop_time_ms = (time.time() - loop_start_time) * 1000.0
+                        ctx = {
+                            "frame_idx": self.frame_count,
+                            "speed_ms": current_speed_ms,
+                            "loop_time_ms": loop_time_ms,
+                        }
+                        events_before = len(self.behavior_logger.events)
+                        self.behavior_logger.update(frame_state, ctx)
+                        if self.context_logger:
+                            self.context_logger.update(frame_state, ctx)
+                        if self.lane_loss_detector:
+                            incident = self.lane_loss_detector.update(frame_state, ctx)
+                            if incident:
+                                logger.warning(
+                                    "Lane loss detected: %s (frame %d, duration=%d frames)",
+                                    incident.root_cause.value,
+                                    incident.frame_idx_start,
+                                    incident.duration_frames,
+                                )
+                        # ── Forward new behavior events to dashboard event timeline ──
+                        # (GUI process handles its own event timeline — events are
+                        #  reconstructed from FrameState in the GUI process)
+                        new_events = self.behavior_logger.events[events_before:]
+                    except Exception as e:
+                        logger.debug(f"Behavior telemetry update skipped: {e}")
+
                 # Update dashboard (AFTER all overrides — shows actual values sent to CARLA)
-                if self.dashboard:
-                    self._update_dashboard(
+                # Send frame data to GUI process (non-blocking)
+                if self.gui_bridge:
+                    self.gui_bridge.send_frame(
                         current_frame, frame_state, current_speed_ms,
                         steer, throttle, brake,
                     )
 
                 # Update frame counter
                 self.frame_count += 1
+
+                # Tick world in synchronous mode
+                if getattr(self.carla, '_sync_mode', False):
+                    try:
+                        self.carla.world.tick()
+                    except Exception:
+                        pass
 
                 # Maintain control frequency
                 loop_time = time.time() - loop_start_time
@@ -525,6 +716,10 @@ class CARLAMPCSystem:
             # Render top bar (speed, autopilot, target)
             self.dashboard._render_top_bar(frame_state, self.target_speed_kmh)
 
+            # ── Factory HMI: lane health bar (P1-P5 + geometry + confidence) ──
+            if frame_state:
+                self.dashboard.render_health_bar(frame_state)
+
             # Render metrics panel
             speed_kmh = current_speed_ms * 3.6
             confidence = frame_state.lane_conf if frame_state else 0.0
@@ -535,6 +730,10 @@ class CARLAMPCSystem:
                 speed_kmh, steer, cte, confidence, fps, frame_state
             )
 
+            # ── Factory HMI: industrial gauges (speedometer, steering, pedals, etc.) ──
+            if frame_state:
+                self.dashboard.render_hmi_gauges(frame_state, self.target_speed_kmh, fps)
+
             # Render ADAS panel
             if frame_state:
                 self.dashboard.render_adas_panel(frame_state)
@@ -543,6 +742,9 @@ class CARLAMPCSystem:
             self.dashboard.render_control_info(
                 throttle, brake, self.target_speed_kmh, frame_state
             )
+
+            # ── Factory HMI: event/alarm timeline (SCADA-style) ──
+            self.dashboard.render_event_timeline()
 
             # Render status bar
             sim_time = time.time() - loop_start_time if 'loop_start_time' in dir() else 0.0
@@ -558,6 +760,9 @@ class CARLAMPCSystem:
         """Cleanup all system resources"""
         try:
             logger.info("Cleaning up system resources...")
+
+            # หยุด control refresher thread
+            self._stop_control_thread()
 
             # Save metrics
             if self.metrics_collector and self.metrics_collector.frames:
@@ -594,6 +799,52 @@ class CARLAMPCSystem:
                 except Exception as e:
                     logger.error(f"Run analysis failed: {e}")
 
+            # ── Generate AI-readable behavior report ─────────────────
+            # สร้างรายงานสรุปพฤติกรรมทั้ง run ให้ AI/LLM อ่านและวิเคราะห์
+            if self.behavior_logger and self.ai_report_gen:
+                try:
+                    # Finalize lane loss detector (ปิด incident ที่ยัง lost อยู่)
+                    if self.lane_loss_detector:
+                        self.lane_loss_detector.finalize()
+
+                    summary = self.behavior_logger.get_summary()
+                    events = self.behavior_logger.events
+                    incidents = (
+                        [inc.to_dict() for inc in self.lane_loss_detector.get_incidents()]
+                        if self.lane_loss_detector else []
+                    )
+
+                    # ดึง run metadata จาก run_logger
+                    map_name = getattr(self.run_logger, 'map_name', 'unknown') if self.run_logger else 'unknown'
+                    vehicle_type = getattr(self.run_logger, 'vehicle_type', 'unknown') if self.run_logger else 'unknown'
+                    run_dir_path = Path(str(self.run_logger.run_dir)) if self.run_logger else Path("runs/latest")
+                    # คำนวณ duration จาก loop_times (ผลรวมเวลาทั้ง run)
+                    duration_s = float(np.sum(self._loop_times)) if self._loop_times else 0.0
+                    run_meta = {
+                        "map": map_name,
+                        "vehicle": vehicle_type,
+                        "target_speed": self.target_speed_kmh,
+                        "target_speed_kmh": self.target_speed_kmh,
+                        "total_frames": self.frame_count,
+                        "duration": duration_s,
+                        "duration_s": duration_s,
+                    }
+
+                    # สร้าง text report (.txt)
+                    report = self.ai_report_gen.generate_report(summary, events, incidents, run_meta)
+                    report_path = run_dir_path / "ai_behavior_report.txt"
+                    self.ai_report_gen.save_report(report, str(report_path))
+
+                    # สร้าง JSON report (.json)
+                    json_report = self.ai_report_gen.generate_json_report(summary, events, incidents, run_meta)
+                    json_path = run_dir_path / "ai_behavior_report.json"
+                    json_path.write_text(json.dumps(json_report, indent=2, default=str), encoding="utf-8")
+
+                    logger.info("AI behavior report saved → %s", report_path)
+                    logger.info("AI behavior JSON report saved → %s", json_path)
+                except Exception as e:
+                    logger.error(f"AI behavior report generation failed: {e}")
+
             # Print final realtime stats
             if self.realtime_stats:
                 stats = self.realtime_stats.get_current_stats()
@@ -604,9 +855,9 @@ class CARLAMPCSystem:
             if self.carla and self.carla.camera:
                 self.carla.camera.stop()
 
-            # Cleanup dashboard
-            if self.dashboard:
-                self.dashboard.cleanup()
+            # Cleanup GUI process
+            if self.gui_bridge:
+                self.gui_bridge.stop()
 
             # Cleanup CARLA
             if self.carla:
@@ -622,7 +873,10 @@ def main():
     """Main entry point"""
     parser = argparse.ArgumentParser(description="CARLA MPC Lane Keeping System")
     parser.add_argument("--model", type=str, default="model/lane_unet_final.pth",
-                       help="Path to UNet model file")
+                       help="Path to model file")
+    parser.add_argument("--model-type", type=str, default="unet",
+                       choices=["unet", "dsunet", "ultra_fast"],
+                       help="Model type: unet, dsunet, or ultra_fast")
     parser.add_argument("--town", type=str, default="Town04",
                        help="CARLA town name")
     parser.add_argument("--speed", type=float, default=TARGET_SPEED_KMH,
@@ -663,6 +917,7 @@ def main():
         use_classical=args.classical,
         no_gui=args.no_gui,
         metrics_dir=args.metrics_dir,
+        model_type=args.model_type,
     )
 
     return system.run()

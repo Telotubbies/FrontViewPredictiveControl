@@ -69,6 +69,10 @@ class RunLogger:
         "tja_state", "tja_active", "stop_and_go_stopped",
         # Performance
         "fps", "loop_time_ms", "perception_time_ms", "mpc_time_ms",
+        # Lane detection health (behavior logging)
+        "phase_p1_ok", "phase_p2_ok", "phase_p3_ok", "phase_p4_ok", "phase_p5_ok",
+        "phase_p2_case", "phase_p3_case",
+        "lane_conf_drop", "lane_lost", "off_track",
     ]
 
     def __init__(
@@ -117,6 +121,9 @@ class RunLogger:
         self._prev_fallback = False
         self._prev_departure = False
         self._prev_safety = False
+        self._prev_lane_lost = False
+        self._prev_off_track = False
+        self._prev_conf_drop = False
 
     def start(self) -> None:
         """เริ่ม background writer thread"""
@@ -235,6 +242,12 @@ class RunLogger:
                 row[col] = ctx.get("reverse", False)
             elif col == "vehicle_yaw":
                 row[col] = getattr(fs, "vehicle_yaw", 0.0)
+            elif col == "lane_conf_drop":
+                row[col] = float(getattr(fs, "lane_conf", 1.0)) < 0.3
+            elif col == "lane_lost":
+                row[col] = float(getattr(fs, "lane_conf", 1.0)) < 0.3
+            elif col == "off_track":
+                row[col] = abs(float(getattr(fs, "cte_m", 0.0))) > 1.75
             else:
                 # Direct attribute from FrameState
                 row[col] = getattr(fs, col, None)
@@ -301,6 +314,41 @@ class RunLogger:
                 {"cte_m": getattr(fs, "cte_m", 0), "side": getattr(fs, "ldw_side", "none")},
             )
         self._prev_departure = departed_now
+
+        # Lane confidence drop
+        conf = float(getattr(fs, "lane_conf", 1.0))
+        conf_drop_now = conf < 0.3
+        if conf_drop_now and not self._prev_conf_drop:
+            self.log_event(
+                "lane_conf_drop", "warning",
+                f"Lane confidence dropped to {conf:.2f}",
+                frame_idx,
+                {"conf": conf, "cte_m": getattr(fs, "cte_m", 0)},
+            )
+        self._prev_conf_drop = conf_drop_now
+
+        # Lane lost (consecutive low confidence)
+        lane_lost_now = conf < 0.3
+        if lane_lost_now and not self._prev_lane_lost:
+            self.log_event(
+                "lane_lost", "error",
+                f"Lane detection lost (conf={conf:.2f}, mode={getattr(fs, 'mode', 'unknown')})",
+                frame_idx,
+                {"conf": conf, "cte_m": getattr(fs, "cte_m", 0), "mode": getattr(fs, "mode", "unknown")},
+            )
+        self._prev_lane_lost = lane_lost_now
+
+        # Off-track (CTE exceeds lane half-width)
+        cte_abs = abs(float(getattr(fs, "cte_m", 0.0)))
+        off_track_now = cte_abs > 1.75
+        if off_track_now and not self._prev_off_track:
+            self.log_event(
+                "off_track", "critical",
+                f"Vehicle off-track (CTE={cte_abs:.2f}m)",
+                frame_idx,
+                {"cte_m": getattr(fs, "cte_m", 0), "conf": conf},
+            )
+        self._prev_off_track = off_track_now
 
     def _writer_loop(self) -> None:
         """Background thread: อ่านจาก queue เขียนลง CSV + events.log"""

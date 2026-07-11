@@ -98,3 +98,12 @@ class FrameState:
     vehicle_y: float = 0.0
     vehicle_z: float = 0.0
     vehicle_yaw: float = 0.0
+    # ── Obstacle avoidance (APF) status ─────────────────────────────────────
+    obstacle_avoidance_active: bool = False
+    obstacle_avoidance_side: str = "none"   # none | left | right
+    obstacle_avoidance_shift: float = 0.0   # desired lateral shift (m)
+    obstacle_avoidance_dist: float = float('inf')  # closest obstacle dist (m)
+    obstacle_avoidance_steer: float = 0.0   # steering offset (CARLA units)
+    obstacle_count: int = 0
+    # ── Detected obstacles (for 3D visualization) ──────────────────────────
+    detected_obstacles: Optional[list] = None  # list of (fwd_m, lat_m, dist_m, type_str)

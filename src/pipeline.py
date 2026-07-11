@@ -62,6 +62,7 @@ class LKAPipeline:
         device: torch.device,
         target_speed_kmh: float,
         use_trajectory_pipeline: Optional[bool] = None,
+        model_type: str = "unet",
     ) -> None:
         if use_trajectory_pipeline is None:
             use_trajectory_pipeline = USE_TRAJECTORY_PIPELINE
@@ -69,10 +70,10 @@ class LKAPipeline:
         self._use_trajectory = use_trajectory_pipeline
         self._target_speed_ms = target_speed_kmh / 3.6
 
-        # Only load UNet if not using classical detector
+        # Only load model if not using classical detector
         if not USE_CLASSICAL_DETECTOR:
             # Use BEV-based perception (more robust for dashed lines)
-            self._legacy_perception = BEVRoadPerception(model_path, device)
+            self._legacy_perception = BEVRoadPerception(model_path, device, model_type=model_type)
         else:
             self._legacy_perception = None
             logger.info("Skipping UNet load - using Classical Detector")
@@ -100,14 +101,15 @@ class LKAPipeline:
 
         self._smoother = LaneTemporalSmoother(ema_alpha=LANE_EMA_ALPHA)
         self._mpc_cfg = MPCConfig(
-            N=10,
+            N=20,             # เพิ่ม horizon ให้มองไกลขึ้นสำหรับโค้ง
             dt=0.1,
-            w_cte=200.0,
-            w_heading=85.0,
-            w_vel=5.0,
-            w_steer=80.0,
-            w_steer_rate=350.0,
-            max_steer_rate=0.20,
+            w_cte=180.0,      # สูงพอให้ตาม lane แต่ไม่สุดโต่ง
+            w_heading=90.0,   # สูงเพื่อตาม heading ของถนนโค้ง
+            w_vel=80.0,       # สูงเพื่อให้ถึง target speed
+            w_steer=60.0,     # ลดเพื่อให้หักพวงได้เมื่อโค้ง
+            w_steer_rate=400.0,  # สูงเพื่อลด oscillation
+            w_steer_jerk=150.0,  # เพิ่ม jerk penalty
+            max_steer_rate=0.25,  # พอให้หักพวงในโค้ง
         )
         self._mpc = LaneMPC(self._mpc_cfg)
         self._safety = SafetyOverride({
@@ -211,8 +213,14 @@ class LKAPipeline:
         steer = STEER_SMOOTH_ALPHA * prev_steer + (1 - STEER_SMOOTH_ALPHA) * s_raw
         throttle, brake = self._mpc.accel_to_carla(accel)
 
-        if speed_ms < 0.6 and brake < 0.1:
-            throttle = max(throttle, 0.55)
+        # Low-speed boost: ถ้ารถช้ากว่า target และไม่เบรก ให้เพิ่ม throttle
+        # CARLA 0.9.x ต้องการ throttle สูงกว่าที่ MPC คำนวณเพื่อเร่งถึง target
+        target_speed_ms = self._target_speed_ms
+        if speed_ms < target_speed_ms * 0.95 and brake < 0.1:
+            # min_thr ลดลงเมื่อเข้าใกล้ target (เร่งแรงตอนช้า, ค่อยๆ ลด)
+            speed_ratio = speed_ms / target_speed_ms
+            min_thr = 0.5 + 0.3 * (1.0 - speed_ratio)  # 0.5-0.8
+            throttle = max(throttle, min_thr)
             brake = 0.0
 
         steer, throttle, brake = self._safety.apply_safety_override(
@@ -253,5 +261,19 @@ class LKAPipeline:
             mpc_trajectory=mpc_trajectory,
         )
         frame_state.mpc_solve_time_ms = mpc_solve_time_ms
+
+        # ── Set phase flags (P1-P5) สำหรับ telemetry/dashboard ──────────────
+        # P1: Lane mask + confidence — ใช้ lane_conf เป็นเกณฑ์
+        frame_state.phase_p1_ok = lane_conf >= 0.3
+        # P2: Left/right boundary — มี left_px_img หรือ right_px_img
+        frame_state.phase_p2_ok = (left_px_img is not None and len(left_px_img) > 0) or \
+                                  (right_px_img is not None and len(right_px_img) > 0)
+        # P3: Centerline — มี reference_path
+        frame_state.phase_p3_ok = reference_path is not None and len(reference_path) >= 2
+        # P4: Lane state (cte, heading, curvature) — geometry_valid
+        frame_state.phase_p4_ok = geometry_valid
+        # P5: Lane phase/mode — ไม่ใช่ fallback mode
+        frame_state.phase_p5_ok = mode != "fallback" and mode != "unknown"
+
         return steer, throttle, brake, frame_state
 
