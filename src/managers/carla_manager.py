@@ -69,7 +69,7 @@ class CarlaManager:
 
         # State
         self.connected = False
-        self.camera_callback: Optional[Callable] = None
+        self._user_callback: Optional[Callable] = None
         self.frame_queue: queue.Queue = queue.Queue(maxsize=2)
 
     def connect(self) -> bool:
@@ -160,44 +160,52 @@ class CarlaManager:
             logger.error("Camera not setup")
             return False
 
-        def camera_callback(image):
-            try:
-                # Convert CARLA image to numpy array
-                array = np.frombuffer(image.raw_data, dtype=np.dtype("uint8"))
-                array = np.reshape(array, (image.height, image.width, 4))
-                array = array[:, :, :3]  # Remove alpha
-                array = array[:, :, ::-1]  # BGR to RGB
-
-                # Create CameraFrame
-                frame = CameraFrame(
-                    rgb=array,
-                    timestamp=image.timestamp,
-                    width=image.width,
-                    height=image.height,
-                    fov=float(self.config.CAM_FOV_DEG)
-                )
-
-                # Call user callback if provided
-                if callback:
-                    callback(frame)
-
-                # Put in queue for internal use
-                try:
-                    self.frame_queue.put_nowait(frame)
-                except queue.Full:
-                    try:
-                        self.frame_queue.get_nowait()
-                        self.frame_queue.put_nowait(frame)
-                    except queue.Empty:
-                        pass
-
-            except Exception as e:
-                logger.error(f"Camera callback error: {e}")
-
-        self.camera.listen(camera_callback)
-        self.camera_callback = callback
+        self._user_callback = callback
+        self.camera.listen(self._camera_callback)
         logger.info("Camera started")
         return True
+
+    def _camera_callback(self, image):
+        """Internal camera callback — converts CARLA image to CameraFrame."""
+        try:
+            # Convert CARLA image to numpy array
+            array = np.frombuffer(image.raw_data, dtype=np.dtype("uint8"))
+            array = np.reshape(array, (image.height, image.width, 4))
+            array = array[:, :, :3]  # Remove alpha
+            array = array[:, :, ::-1]  # BGR to RGB
+
+            # Create CameraFrame
+            frame = CameraFrame(
+                rgb=array,
+                timestamp=image.timestamp,
+                width=image.width,
+                height=image.height,
+                fov=float(self.config.CAM_FOV_DEG)
+            )
+
+            # Call user callback if provided
+            callback = getattr(self, '_user_callback', None)
+            if callback:
+                callback(frame)
+
+            # Put in queue for internal use
+            try:
+                self.frame_queue.put_nowait(frame)
+            except queue.Full:
+                try:
+                    self.frame_queue.get_nowait()
+                    self.frame_queue.put_nowait(frame)
+                except queue.Empty:
+                    pass
+
+        except Exception as e:
+            logger.error(f"Camera callback error: {e}")
+
+    def camera_callback(self, image, callback=None):
+        """Public method to process a CARLA image and optionally call user callback."""
+        if callback is not None:
+            self._user_callback = callback
+        self._camera_callback(image)
 
     def get_latest_frame(self) -> Optional[CameraFrame]:
         """Get latest camera frame"""

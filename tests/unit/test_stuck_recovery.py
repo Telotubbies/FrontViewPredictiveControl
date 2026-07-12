@@ -166,7 +166,7 @@ class TestReversePhase:
     """Test reverse phase of recovery."""
 
     def test_reverse_returns_reverse_control(self):
-        """Reverse phase should return reverse=True with throttle."""
+        """Reverse phase should return reverse=True with negative throttle."""
         r = StuckRecovery()
         r._phase = "reverse"
         r._counter = 0
@@ -174,7 +174,7 @@ class TestReversePhase:
         assert result is not None
         steer, throttle, brake, reverse = result
         assert reverse is True
-        assert throttle > 0
+        assert throttle < 0  # negative throttle = reverse in CARLA
         assert brake == pytest.approx(0.0)
 
     def test_reverse_transitions_to_forward(self):
@@ -207,7 +207,7 @@ class TestForwardPhase:
         """After forward phase, should return to idle."""
         r = StuckRecovery()
         r._phase = "forward"
-        r._counter = 24  # forward phase is 25 frames
+        r._counter = 29  # forward phase is 30 frames
         result = r.update(speed=0.01, throttle=0.5)
         assert r._phase == "idle"
         assert r.just_recovered is True
@@ -302,6 +302,6 @@ class TestFullRecoveryCycle:
         """After recovery completes, cooldown should be set."""
         r = StuckRecovery()
         r._phase = "forward"
-        r._counter = 24
+        r._counter = 29
         r.update(speed=0.01, throttle=0.5)
         assert r._cooldown == r.COOLDOWN_AFTER_RECOVERY

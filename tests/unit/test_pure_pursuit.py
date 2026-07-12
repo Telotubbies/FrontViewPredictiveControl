@@ -187,7 +187,7 @@ class TestHybridController:
 
     def _make_mock_mpc(self, steer_rad=0.1):
         mpc = Mock()
-        mpc.solve = Mock(return_value=(steer_rad, 0.5, 0.0))
+        mpc.solve = Mock(return_value=(steer_rad, 0.5, 0.0, None))
         mpc.steer_to_carla = Mock(return_value=0.15)
         return mpc
 

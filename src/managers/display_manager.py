@@ -13,6 +13,7 @@ import logging
 import time
 from typing import Optional, Dict, Any
 import numpy as np
+import cv2
 
 try:
     import pygame
@@ -177,7 +178,6 @@ class DisplayManager:
         """Render camera frame"""
         try:
             # Resize frame to fit with proper aspect ratio
-            import cv2
             target_h = self.config.PANEL_H // 2
             target_w = self.config.PANEL_W // 2
             frame_resized = cv2.resize(frame.rgb, (target_w, target_h))
@@ -279,9 +279,11 @@ class DisplayManager:
         """Get color based on confidence level"""
         try:
             confidence = float(confidence)
-            if confidence > 0.7:
+            if confidence != confidence:  # NaN check
+                return (200, 200, 200)
+            if confidence >= 0.7:
                 return (0, 255, 0)  # Green
-            elif confidence > 0.4:
+            elif confidence >= 0.4:
                 return (255, 255, 0)  # Yellow
             else:
                 return (255, 0, 0)  # Red

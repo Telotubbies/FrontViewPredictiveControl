@@ -1,5 +1,6 @@
 """Unit tests for CarlaManager camera callback and image processing."""
 import sys
+import queue as queue_module
 from pathlib import Path
 from unittest.mock import Mock, patch
 import numpy as np
@@ -96,7 +97,7 @@ class TestCarlaManager:
         mock_image.timestamp = 123456789.0
 
         # Mock queue full scenario
-        self.manager.frame_queue.put_nowait.side_effect = [Exception("Queue full"), None]
+        self.manager.frame_queue.put_nowait.side_effect = [queue_module.Full, None]
         self.manager.frame_queue.get_nowait.return_value = Mock()
 
         callback_mock = Mock()
@@ -121,11 +122,11 @@ class TestCarlaManager:
 
     def test_rgb_conversion_bgr_to_rgb(self):
         """Test BGR to RGB conversion in image processing."""
-        # Create test BGR data (blue pixel)
-        bgr_data = np.array([[[255, 0, 0]]], dtype=np.uint8)  # Blue in BGR
+        # Create test BGRA data (blue pixel, alpha=255)
+        bgra_data = np.array([[[255, 0, 0, 255]]], dtype=np.uint8)  # Blue in BGRA
 
         mock_image = Mock()
-        mock_image.raw_data = bgr_data.tobytes()
+        mock_image.raw_data = bgra_data.tobytes()
         mock_image.width = 1
         mock_image.height = 1
         mock_image.timestamp = 123456789.0

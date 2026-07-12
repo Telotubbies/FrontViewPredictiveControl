@@ -63,40 +63,44 @@ class TestSystemIntegration:
         assert captured_frame.fov == 90.0
         assert captured_frame.rgb.shape == (480, 640, 3)
 
-    @patch('pipeline.get_config')
-    def test_perception_pipeline_integration(self, mock_get_config):
+    @patch('pipeline.BEVRoadPerception')
+    @patch('pipeline.LaneTemporalSmoother')
+    @patch('pipeline.LaneMPC')
+    @patch('pipeline.SafetyOverride')
+    def test_perception_pipeline_integration(self, mock_safety, mock_mpc, mock_smoother, mock_perception):
         """Test perception pipeline integration with trajectory processing."""
-        mock_get_config.return_value = self.config_mock
 
-        with patch('pipeline.RoadPerception') as mock_perception, \
-             patch('pipeline.LaneTemporalSmoother') as mock_smoother, \
-             patch('pipeline.LaneMPC') as mock_mpc, \
-             patch('pipeline.SafetyOverride') as mock_safety:
+        from pipeline import LKAPipeline
 
-            from pipeline import LKAPipeline
+        # Setup mocks
+        mock_perception.return_value.process.return_value = (
+            0.5, 0.1, 0.02, np.zeros((480, 640), dtype=np.uint8), 0.8, []
+        )
+        mock_smoother.return_value.update.return_value = [0.5, 0.1, 0.02]
+        mock_mpc.return_value.solve.return_value = (0.1, 0.2, 0.0, None)
+        mock_mpc.return_value.steer_to_carla.return_value = 0.1
+        mock_mpc.return_value.accel_to_carla.return_value = (0.5, 0.0)
+        mock_safety.return_value.apply.return_value = (0.1, 0.2, 0.0)
+        mock_safety.return_value.apply_safety_override.return_value = (0.1, 0.5, 0.0)
 
-            # Setup mocks
-            mock_perception.return_value.process.return_value = (
-                0.5, 0.1, 0.02, np.zeros((480, 640), dtype=np.uint8), 0.8, []
-            )
-            mock_smoother.return_value.update.return_value = [0.5, 0.1, 0.02]
-            mock_mpc.return_value.solve.return_value = (0.1, 0.2, 0.0)
-            mock_safety.return_value.apply.return_value = (0.1, 0.2, 0.0)
+        pipeline = LKAPipeline(
+            "dummy_model.pth",
+            Mock(),  # device
+            30.0,    # target speed
+            use_trajectory_pipeline=False
+        )
 
-            pipeline = LKAPipeline(
-                "dummy_model.pth",
-                Mock(),  # device
-                30.0,    # target speed
-                use_trajectory_pipeline=False
-            )
+        # If classical detector is enabled, _legacy_perception is None — inject mock
+        if pipeline._legacy_perception is None:
+            pipeline._legacy_perception = mock_perception.return_value
 
-            # Test process method
-            rgb_input = np.random.randint(0, 255, (480, 640, 3), dtype=np.uint8)
-            result = pipeline.process(rgb_input)
+        # Test process method
+        rgb_input = np.random.randint(0, 255, (480, 640, 3), dtype=np.uint8)
+        result = pipeline.process(rgb_input)
 
-            # Verify pipeline execution
-            assert len(result) == 4  # (steer, throttle, brake, frame_state)
-            assert all(isinstance(x, (int, float)) for x in result[:3])
+        # Verify pipeline execution
+        assert len(result) == 4  # (steer, throttle, brake, frame_state)
+        assert all(isinstance(x, (int, float)) for x in result[:3])
 
     def test_stuck_recovery_with_control_manager(self):
         """Test stuck recovery integration with control manager."""
@@ -146,7 +150,6 @@ class TestSystemIntegration:
             geometry_valid=True,
             lane_overlay=None,
             bev_window_vis=None,
-            mask_vis=None
         )
 
         # Test rendering (should not raise exceptions)
@@ -193,9 +196,9 @@ class TestConfigIntegration:
 
     def test_config_consistency(self):
         """Test that configuration values are consistent across components."""
-        from config_clean import get_config
+        import config as config_module
 
-        config = get_config()
+        config = config_module
 
         # Verify required config keys exist
         required_keys = ['CAM_W', 'CAM_H', 'CAM_FOV_DEG', 'PANEL_W', 'PANEL_H']

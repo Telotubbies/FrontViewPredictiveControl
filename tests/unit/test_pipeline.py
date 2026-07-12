@@ -131,11 +131,17 @@ class TestLKAPipelineWithTrajectory:
         mock_trajectory_output.lane_overlay = None
         mock_trajectory_output.bev_window_vis = None
         mock_trajectory_output.mask_vis = None
+        mock_trajectory_output.left_px_img = None
+        mock_trajectory_output.right_px_img = None
+        mock_trajectory_output.reference_path = None
+        mock_trajectory_output.left_curvature_m = 9999.0
+        mock_trajectory_output.right_curvature_m = 9999.0
+        mock_trajectory_output.bev_binary = None
 
         self.mock_trajectory.return_value.process.return_value = mock_trajectory_output
 
         # Mock other components
-        self.pipeline._mpc.solve = Mock(return_value=(0.1, 0.2, 0.0))
+        self.pipeline._mpc.solve = Mock(return_value=(0.1, 0.2, 0.0, None))
         self.pipeline._mpc.steer_to_carla = Mock(return_value=0.1)
         self.pipeline._mpc.accel_to_carla = Mock(return_value=(0.5, 0.0))
         self.pipeline._safety.apply = Mock(return_value=(0.1, 0.2, 0.0))
@@ -146,8 +152,10 @@ class TestLKAPipelineWithTrajectory:
         # Should not raise exception
         result = self.pipeline.process(rgb_input)
 
-        # Verify trajectory pipeline was used
-        self.mock_trajectory.return_value.process.assert_called_once_with(rgb_input)
+        # Verify trajectory pipeline was used (process called with rgb + world/vehicle kwargs)
+        self.mock_trajectory.return_value.process.assert_called_once()
+        call_args = self.mock_trajectory.return_value.process.call_args
+        assert call_args.args[0] is rgb_input or np.array_equal(call_args.args[0], rgb_input)
 
         # Verify result structure
         assert len(result) == 4  # (steer, throttle, brake, frame_state)

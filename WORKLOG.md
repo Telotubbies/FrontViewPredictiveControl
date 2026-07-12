@@ -160,3 +160,35 @@
 - ถ้างานยังไม่ commit ให้ใส่ `—` ในคอลัมน์ Commit
 - ถ้างานยังไม่เริ่ม ให้ใส่ `TBD` ในคอลัมน์ Date และ Commit
 - หลัง commit ทุกครั้ง ให้อัปเดตตารางนี้พร้อม commit hash
+
+---
+
+## Loop 1 — Perception Module (2026-07-12)
+
+### Phase 1: HARDENING
+
+| # | Task | Result |
+|---|------|--------|
+| 1 | รัน test ทั้งหมด | 700 passed (แก้ 6 fail → 0) |
+| 2 | แก้ test ที่ fail | pipeline mock (4-tuple), pure_pursuit mock, stuck_recovery params, display_manager cv2/color, carla_manager callback, integration config_clean |
+| 3 | เพิ่ม test หนัก perception | 65 tests (test_perception_heavy.py) — edge case, multi-res, noise, round-trip |
+| 4 | Coverage | 15% → 39% (lane_trajectory 0%→44%, classical 0%→59%) |
+
+### Phase 2: RESEARCH
+
+สรุป 5 papers/projects น่า implement (เรียงตาม priority):
+1. **Depth Anything V2** (NeurIPS 2024) — monocular depth estimation
+2. **CLRNet/CLRerNet** (WACV 2024) — anchor-based lane detection
+3. **BEVFormer** (TPAMI 2024) — camera-only BEV with transformer
+4. **OpenLane-V2** (NeurIPS 2023) — lane topology reasoning
+5. **HydraNet** — multi-task perception backbone
+
+ดูรายละเอียด: `docs/PERCEPTION_RESEARCH.md`
+
+### Phase 3: EXTEND
+
+| # | Feature | Files | Tests | Status |
+|---|---------|-------|-------|--------|
+| 1 | Depth Anything V2 + FlatGroundDepth fallback | `src/perception/depth_estimation.py` | 20 tests | ✅ 785 passed |
+
+**รวม: 785 passed, 1 skipped, 0 failed**
