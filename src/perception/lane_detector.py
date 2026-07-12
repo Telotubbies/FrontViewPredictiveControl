@@ -488,9 +488,18 @@ class LaneDetector:
         image: np.ndarray,
         world=None,
         vehicle=None,
+        use_model_priority: bool = True,
     ) -> Tuple[np.ndarray, np.ndarray, List[List[Tuple[int, int]]]]:
         """
         Detect lanes in image.
+
+        Priority (when use_model_priority=True):
+          1. DSUNet / UNet model (if loaded) — primary, uses camera only
+          2. CARLA waypoint detection (if world/vehicle available) — fallback
+          3. Canny edge — last resort
+
+        When use_model_priority=False (legacy mode):
+          CARLA waypoint is primary when world/vehicle available.
 
         Returns:
             lane_mask     : Binary lane mask (H, W)
@@ -500,32 +509,24 @@ class LaneDetector:
         if self.ultra_fast_detector is not None:
             return self.ultra_fast_detector.detect_lanes(image, use_post_processing=True)
 
-        # CARLA waypoint detection is primary when world/vehicle available (ground truth)
+        # ── Primary: DSUNet / UNet model (camera-only, no ground truth) ──
+        if use_model_priority and self.model is not None:
+            mask = self._infer_model(image)
+            if mask is not None and np.count_nonzero(mask) > 50:
+                return mask, self._extract_lane_features(mask), []
+            # If model produced empty mask, fall through to CARLA/Canny
+            logger.debug("DSUNet mask empty, falling back to CARLA/Canny")
+
+        # ── Fallback: CARLA waypoint detection ──
         if world is not None and vehicle is not None:
             mask = self.detect_lanes_carla(image, world, vehicle, fov=CAM_FOV_DEG)
             return mask, self._extract_lane_features(mask), []
 
-        # Model fallback when no CARLA access
-        if self.model is not None:
-            with torch.no_grad():
-                img_tensor = torch.FloatTensor(image).permute(2, 0, 1).unsqueeze(0) / 255.0
-                img_tensor = img_tensor.to(self.device)
-                img_tensor = F.interpolate(img_tensor, size=(UNET_INPUT_H_INFER, UNET_INPUT_W_INFER),
-                                           mode='bilinear', align_corners=False)
-                output = self.model(img_tensor)
-
-                if self.model_type == "dsunet":
-                    lane_prob = torch.sigmoid(output)[0, 0].cpu().numpy()
-                else:
-                    probs = torch.softmax(output, dim=1)
-                    lane_prob = probs[0, 1].cpu().numpy()
-                lane_prob = cv2.resize(lane_prob, (image.shape[1], image.shape[0]),
-                                      interpolation=cv2.INTER_LINEAR)
-
-                mask_bin = (lane_prob > 0.02).astype(np.uint8)
-                kernel = cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (5, 5))
-                mask = cv2.morphologyEx(mask_bin, cv2.MORPH_CLOSE, kernel)
-                return (mask * 255).astype(np.uint8), self._extract_lane_features(mask), []
+        # ── Fallback: Model (if not tried yet) ──
+        if not use_model_priority and self.model is not None:
+            mask = self._infer_model(image)
+            if mask is not None:
+                return mask, self._extract_lane_features(mask), []
 
         # Last resort: Canny edge in lower half
         gray = cv2.cvtColor(image, cv2.COLOR_RGB2GRAY)
@@ -534,6 +535,58 @@ class LaneDetector:
         mask = np.zeros((h, w), dtype=np.uint8)
         mask[h // 2:, :] = edges[h // 2:, :]
         return mask, self._extract_lane_features(mask), []
+
+    def _infer_model(self, image: np.ndarray) -> Optional[np.ndarray]:
+        """Run DSUNet/UNet inference and return binary mask (H, W) uint8 or None.
+
+        Handles:
+        - Input resize to UNET_INPUT_H_INFER × UNET_INPUT_W_INFER
+        - ImageNet normalization (must match training preprocessing)
+        - Sigmoid (DSUNet) or softmax (UNet) output
+        - Threshold + morphology close
+        - Resize back to original image size
+        """
+        if self.model is None:
+            return None
+        try:
+            with torch.no_grad():
+                # ── Preprocessing: must match training (Albumentations A.Normalize) ──
+                # Training used: A.Normalize(mean=[0.485,0.456,0.406], std=[0.229,0.224,0.225])
+                # which does: (img/255 - mean) / std
+                img_f = image.astype(np.float32) / 255.0
+                mean = np.array([0.485, 0.456, 0.406], dtype=np.float32)
+                std = np.array([0.229, 0.224, 0.225], dtype=np.float32)
+                img_f = (img_f - mean) / std
+
+                img_tensor = torch.from_numpy(img_f).permute(2, 0, 1).unsqueeze(0)
+                img_tensor = img_tensor.to(self.device)
+                img_tensor = F.interpolate(
+                    img_tensor,
+                    size=(UNET_INPUT_H_INFER, UNET_INPUT_W_INFER),
+                    mode='bilinear', align_corners=False,
+                )
+                output = self.model(img_tensor)
+
+                if self.model_type == "dsunet":
+                    lane_prob = torch.sigmoid(output)[0, 0].cpu().numpy()
+                else:
+                    probs = torch.softmax(output, dim=1)
+                    lane_prob = probs[0, 1].cpu().numpy()
+
+                # Resize back to original image size
+                lane_prob = cv2.resize(
+                    lane_prob, (image.shape[1], image.shape[0]),
+                    interpolation=cv2.INTER_LINEAR,
+                )
+
+                # Threshold — 0.02 is low to catch faint dashed lines
+                mask_bin = (lane_prob > 0.02).astype(np.uint8)
+                kernel = cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (5, 5))
+                mask = cv2.morphologyEx(mask_bin, cv2.MORPH_CLOSE, kernel)
+                return (mask * 255).astype(np.uint8)
+        except Exception as e:
+            logger.warning("Model inference failed: %s", e)
+            return None
 
     def _extract_lane_features(self, lane_mask: np.ndarray) -> np.ndarray:
         h, w = lane_mask.shape

@@ -1670,7 +1670,10 @@ class LaneTrajectoryPipeline:
     def _phase1_lane_mask(self, rgb: np.ndarray, world=None, vehicle=None) -> Tuple[np.ndarray, float]:
         """P1: RGB → binary mask + confidence. Optimized for speed."""
         img = cv2.resize(rgb, (self.cam_w, self.cam_h))
-        mask_uint8, _, _ = self.detector.detect_lanes(img, world=world, vehicle=vehicle)
+        # use_model_priority=True: DSUNet is primary, CARLA is fallback
+        mask_uint8, _, _ = self.detector.detect_lanes(
+            img, world=world, vehicle=vehicle, use_model_priority=True,
+        )
         mask = (mask_uint8 > 0).astype(np.uint8)
         mask[: self._road_top_px, :] = 0
         # Minimal morphology with pre-computed kernel

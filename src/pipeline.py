@@ -4,6 +4,7 @@ Input: RGB, speed, waypoint state. Output: control + FrameState สำหรั�
 """
 import logging
 import time
+from pathlib import Path
 from typing import Optional, Tuple, List
 
 import numpy as np
@@ -70,19 +71,35 @@ class LKAPipeline:
         self._use_trajectory = use_trajectory_pipeline
         self._target_speed_ms = target_speed_kmh / 3.6
 
-        # Only load model if not using classical detector
-        if not USE_CLASSICAL_DETECTOR:
-            # Use BEV-based perception (more robust for dashed lines)
+        # Load DSUNet/UNet model if a valid path is provided.
+        # The model is ALWAYS loaded when available — USE_CLASSICAL_DETECTOR
+        # only controls the fallback behavior when the model is absent.
+        from perception.lane_detector import LaneDetector
+        _model_loaded = False
+        if model_path and Path(model_path).exists():
+            self._detector = LaneDetector(
+                model_path=model_path, use_carla=True, model_type=model_type,
+            )
+            _model_loaded = self._detector.model is not None
+            if _model_loaded:
+                logger.info("LKAPipeline: DSUNet/UNet model loaded from %s", model_path)
+            else:
+                logger.warning("LKAPipeline: model file exists but failed to load — fallback to CARLA")
+        else:
+            self._detector = LaneDetector(model_path=None, use_carla=True)
+            logger.info("LKAPipeline: no model path — using CARLA waypoint detection")
+
+        # Legacy BEVRoadPerception (kept for backward compat, not used in trajectory mode)
+        if not USE_CLASSICAL_DETECTOR and _model_loaded:
             self._legacy_perception = BEVRoadPerception(model_path, device, model_type=model_type)
         else:
             self._legacy_perception = None
-            logger.info("Skipping UNet load - using Classical Detector")
 
         if use_trajectory_pipeline:
             from perception.lane_trajectory import LaneTrajectoryPipeline
             self._trajectory_pipeline = LaneTrajectoryPipeline(
-                detector=self._legacy_perception.detector if (self._legacy_perception and not USE_CLASSICAL_DETECTOR) else None,
-                use_classical_detector=USE_CLASSICAL_DETECTOR,
+                detector=self._detector,
+                use_classical_detector=not _model_loaded,  # True only if model failed
                 cam_w=CAM_W,
                 cam_h=CAM_H,
                 v_nominal_ms=self._target_speed_ms,
@@ -91,10 +108,10 @@ class LKAPipeline:
                 bev_top_margin=0.32,
                 bev_bot_margin=0.10,
             )
-            if USE_CLASSICAL_DETECTOR:
-                logger.info("LKAPipeline: using LaneTrajectoryPipeline with CARLA Waypoint Detection (ground truth, no AI model)")
+            if _model_loaded:
+                logger.info("LKAPipeline: LaneTrajectoryPipeline with DSUNet (camera-only, CARLA fallback)")
             else:
-                logger.info("LKAPipeline: using LaneTrajectoryPipeline with UNet (BEV+Kalman)")
+                logger.info("LKAPipeline: LaneTrajectoryPipeline with CARLA Waypoint (no AI model)")
         else:
             self._trajectory_pipeline = None
             logger.info("LKAPipeline: using legacy RoadPerception")

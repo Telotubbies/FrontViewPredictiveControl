@@ -872,9 +872,10 @@ class CARLAMPCSystem:
 def main():
     """Main entry point"""
     parser = argparse.ArgumentParser(description="CARLA MPC Lane Keeping System")
-    parser.add_argument("--model", type=str, default="model/lane_unet_final.pth",
+    parser.add_argument("--model", type=str,
+                       default="dsunet_carla_20260302_031021/best_model_iou.pth",
                        help="Path to model file")
-    parser.add_argument("--model-type", type=str, default="unet",
+    parser.add_argument("--model-type", type=str, default="dsunet",
                        choices=["unet", "dsunet", "ultra_fast"],
                        help="Model type: unet, dsunet, or ultra_fast")
     parser.add_argument("--town", type=str, default="Town04",
